@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Presence Room</title>
+    <link rel="stylesheet" href="/assets/css/room.css">
+    <script src="/assets/js/room.js" defer></script>
+</head>
+<body>
+    <main class="room-shell">
+        <p class="eyebrow">Local presence</p>
+        <h1>Room <span id="room-name"></span></h1>
+
+        <section id="join-panel" class="panel">
+            <form id="join-form">
+                <label for="display-name">What should people call you?</label>
+                <div class="join-row">
+                    <input id="display-name" name="name" maxlength="40" required autofocus>
+                    <button type="submit">Join room</button>
+                </div>
+            </form>
+        </section>
+
+        <section id="presence-panel" class="panel" hidden>
+            <div class="status-row">
+                <span id="connection-dot" class="status-dot"></span>
+                <span id="connection-status" role="status">Connecting…</span>
+            </div>
+            <h2>People here (<span id="participant-count">0</span>)</h2>
+            <ul id="participant-list" aria-live="polite"></ul>
+        </section>
+    </main>
+</body>
+</html>
