@@ -12,17 +12,8 @@
         <header>
             <p class="eyebrow">Local game</p>
             <h1>Choose a lobby</h1>
-            <p>Create a private lobby or join one with its password.</p>
+            <p>Join an available lobby or create a private one.</p>
         </header>
-
-        <section class="panel">
-            <h2>Create a lobby</h2>
-            <form id="create-form">
-                <label>Lobby name <input name="name" maxlength="60" required></label>
-                <label>Password <input name="password" type="password" minlength="4" maxlength="72" required></label>
-                <button type="submit">Create lobby</button>
-            </form>
-        </section>
 
         <section class="panel">
             <div class="list-heading">
@@ -32,6 +23,23 @@
             <p id="list-status" role="status">Loading…</p>
             <ul id="lobby-list"></ul>
         </section>
+
+        <div class="create-action">
+            <button id="open-create" type="button">Create a lobby</button>
+        </div>
+
+        <dialog id="create-dialog">
+            <form id="create-form">
+                <h2>Create a lobby</h2>
+                <label>Lobby name <input name="name" maxlength="60" required autofocus></label>
+                <label>Password <input name="password" type="password" minlength="4" maxlength="72" required></label>
+                <p id="create-error" class="error" role="alert"></p>
+                <div class="actions">
+                    <button id="cancel-create" class="secondary" type="button">Cancel</button>
+                    <button type="submit">Create lobby</button>
+                </div>
+            </form>
+        </dialog>
 
         <dialog id="join-dialog">
             <form id="join-form">
@@ -44,8 +52,6 @@
                 </div>
             </form>
         </dialog>
-
-        <p id="page-error" class="error" role="alert"></p>
     </main>
 </body>
 </html>

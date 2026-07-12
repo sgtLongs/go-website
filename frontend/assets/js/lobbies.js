@@ -1,20 +1,27 @@
 (() => {
     const list = document.querySelector("#lobby-list");
     const status = document.querySelector("#list-status");
-    const pageError = document.querySelector("#page-error");
+    const createDialog = document.querySelector("#create-dialog");
     const createForm = document.querySelector("#create-form");
-    const dialog = document.querySelector("#join-dialog");
+    const createError = document.querySelector("#create-error");
+    const joinDialog = document.querySelector("#join-dialog");
     const joinForm = document.querySelector("#join-form");
     const joinName = document.querySelector("#join-name");
     const joinError = document.querySelector("#join-error");
     let selectedLobby;
 
     document.querySelector("#refresh").addEventListener("click", loadLobbies);
-    document.querySelector("#cancel-join").addEventListener("click", () => dialog.close());
+    document.querySelector("#open-create").addEventListener("click", () => {
+        createForm.reset();
+        createError.textContent = "";
+        createDialog.showModal();
+    });
+    document.querySelector("#cancel-create").addEventListener("click", () => createDialog.close());
+    document.querySelector("#cancel-join").addEventListener("click", () => joinDialog.close());
 
     createForm.addEventListener("submit", async (event) => {
         event.preventDefault();
-        pageError.textContent = "";
+        createError.textContent = "";
         const data = Object.fromEntries(new FormData(createForm));
         const response = await request("/api/lobbies", {method: "POST", body: JSON.stringify(data)});
         if (response.ok) {
@@ -22,7 +29,7 @@
             window.location.assign(`/room/${encodeURIComponent(lobby.id)}`);
             return;
         }
-        pageError.textContent = await errorMessage(response);
+        createError.textContent = await errorMessage(response);
     });
 
     joinForm.addEventListener("submit", async (event) => {
@@ -70,7 +77,7 @@
             joinName.textContent = lobby.name;
             joinError.textContent = "";
             joinForm.reset();
-            dialog.showModal();
+            joinDialog.showModal();
         });
         item.append(details, button);
         return item;

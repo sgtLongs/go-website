@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	MinPlayers    = 3
-	QuestSize     = 3
-	TotalRounds   = 5
-	WinningQuests = 3
+	MinPlayers             = 3
+	TotalRounds            = 5
+	WinningQuests          = 3
+	ProposalRejectionLimit = 5
 )
 
 var (
@@ -21,7 +21,8 @@ var (
 	ErrNotActive          = errors.New("no game is running")
 	ErrWrongPhase         = errors.New("that action is not allowed right now")
 	ErrNotCaptain         = errors.New("only the captain can choose the quest team")
-	ErrInvalidQuest       = errors.New("choose exactly three different players")
+	ErrInvalidQuest       = errors.New("choose the required number of different players")
+	ErrMissingQuestRule   = errors.New("no quest rule is configured for these players")
 	ErrNotProposalVoter   = errors.New("only players in this game may vote on the proposal")
 	ErrAlreadyVoted       = errors.New("you have already voted")
 	ErrNotOnQuest         = errors.New("you are not on this quest")
@@ -60,28 +61,35 @@ type QuestResult struct {
 	Succeeded    bool `json:"succeeded"`
 	SuccessCards int  `json:"successCards"`
 	FailCards    int  `json:"failCards"`
+	Automatic    bool `json:"automatic,omitempty"`
 }
 
 // Snapshot is public game information. It deliberately contains no roles or
 // individual votes, so it is safe to broadcast to every player.
 type Snapshot struct {
-	Active              bool            `json:"active"`
-	Phase               Phase           `json:"phase"`
-	Round               int             `json:"round"`
-	TotalRounds         int             `json:"totalRounds"`
-	Players             []Player        `json:"players"`
-	Captain             Player          `json:"captain"`
-	Quest               []Player        `json:"quest,omitempty"`
-	ProposalVotesCast   int             `json:"proposalVotesCast"`
-	ProposalVotesNeeded int             `json:"proposalVotesNeeded"`
-	QuestCardsPlayed    int             `json:"questCardsPlayed"`
-	QuestCardsNeeded    int             `json:"questCardsNeeded"`
-	SuccessfulQuests    int             `json:"successfulQuests"`
-	FailedQuests        int             `json:"failedQuests"`
-	LastProposal        *ProposalResult `json:"lastProposal,omitempty"`
-	LastQuest           *QuestResult    `json:"lastQuest,omitempty"`
-	Winner              Role            `json:"winner,omitempty"`
-	Traitors            []Player        `json:"traitors,omitempty"`
+	Active                bool            `json:"active"`
+	Phase                 Phase           `json:"phase"`
+	Round                 int             `json:"round"`
+	TotalRounds           int             `json:"totalRounds"`
+	Players               []Player        `json:"players"`
+	Captain               Player          `json:"captain"`
+	Quest                 []Player        `json:"quest,omitempty"`
+	QuestSize             int             `json:"questSize"`
+	QuestSizes            []int           `json:"questSizes"`
+	ProposalVotesCast     int             `json:"proposalVotesCast"`
+	ProposalVotesNeeded   int             `json:"proposalVotesNeeded"`
+	RejectedProposals     int             `json:"rejectedProposals"`
+	ProposalRejectLimit   int             `json:"proposalRejectLimit"`
+	QuestCardsPlayed      int             `json:"questCardsPlayed"`
+	QuestCardsNeeded      int             `json:"questCardsNeeded"`
+	SubmittedQuestPlayers []string        `json:"submittedQuestPlayers,omitempty"`
+	SuccessfulQuests      int             `json:"successfulQuests"`
+	FailedQuests          int             `json:"failedQuests"`
+	QuestResults          []QuestResult   `json:"questResults"`
+	LastProposal          *ProposalResult `json:"lastProposal,omitempty"`
+	LastQuest             *QuestResult    `json:"lastQuest,omitempty"`
+	Winner                Role            `json:"winner,omitempty"`
+	Traitors              []Player        `json:"traitors,omitempty"`
 }
 
 type Started struct {
@@ -101,11 +109,13 @@ type Engine struct {
 	round         int
 	quest         []Player
 	proposalVotes map[string]bool
+	rejectedTeams int
 	questCards    map[string]bool
 	successful    int
 	failed        int
 	lastProposal  *ProposalResult
 	lastQuest     *QuestResult
+	questResults  []QuestResult
 	winner        Role
 	traitors      []Player
 	choose        func(int) (int, error)
@@ -131,6 +141,11 @@ func (g *Engine) Start(players []Player) (Started, error) {
 	}
 	if len(players) < MinPlayers {
 		return Started{}, ErrNotEnoughPlayers
+	}
+	for round := 1; round <= TotalRounds; round++ {
+		if _, exists := QuestSizeFor(len(players), round); !exists {
+			return Started{}, ErrMissingQuestRule
+		}
 	}
 
 	traitorIndex, err := g.randomIndex(len(players))
@@ -161,11 +176,13 @@ func (g *Engine) Start(players []Player) (Started, error) {
 	g.round = 1
 	g.quest = nil
 	g.proposalVotes = nil
+	g.rejectedTeams = 0
 	g.questCards = nil
 	g.successful = 0
 	g.failed = 0
 	g.lastProposal = nil
 	g.lastQuest = nil
+	g.questResults = nil
 	g.winner = ""
 	g.traitors = []Player{traitor}
 
@@ -182,12 +199,13 @@ func (g *Engine) ProposeQuest(captainID string, playerIDs []string) error {
 	if g.players[g.captainIndex].ID != captainID {
 		return ErrNotCaptain
 	}
-	if len(playerIDs) != QuestSize {
+	questSize := g.currentQuestSize()
+	if len(playerIDs) != questSize {
 		return ErrInvalidQuest
 	}
 
-	seen := make(map[string]struct{}, QuestSize)
-	quest := make([]Player, 0, QuestSize)
+	seen := make(map[string]struct{}, questSize)
+	quest := make([]Player, 0, questSize)
 	for _, id := range playerIDs {
 		player, exists := g.playerByID[id]
 		if _, duplicate := seen[id]; !exists || duplicate {
@@ -235,9 +253,16 @@ func (g *Engine) VoteOnProposal(playerID string, approve bool) (bool, error) {
 	approved := yes > len(g.proposalVotes)/2
 	g.lastProposal = &ProposalResult{Approved: approved, Yes: yes, No: no}
 	if approved {
+		g.rejectedTeams = 0
 		g.phase = PlayingQuest
-		g.questCards = make(map[string]bool, QuestSize)
+		g.questCards = make(map[string]bool, len(g.quest))
 	} else {
+		g.rejectedTeams++
+		if g.rejectedTeams == ProposalRejectionLimit {
+			g.rejectedTeams = 0
+			g.resolveQuest(QuestResult{Round: g.round, Automatic: true})
+			return true, nil
+		}
 		g.advanceCaptain()
 		g.phase = ChoosingTeam
 		g.quest = nil
@@ -266,7 +291,7 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 	}
 
 	g.questCards[playerID] = succeed
-	if len(g.questCards) < QuestSize {
+	if len(g.questCards) < len(g.quest) {
 		return false, nil
 	}
 
@@ -276,30 +301,13 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 			successCards++
 		}
 	}
-	failCards := QuestSize - successCards
+	failCards := len(g.quest) - successCards
 	succeeded := failCards == 0
-	g.lastQuest = &QuestResult{
+	result := QuestResult{
 		Round: g.round, Succeeded: succeeded,
 		SuccessCards: successCards, FailCards: failCards,
 	}
-	if succeeded {
-		g.successful++
-	} else {
-		g.failed++
-	}
-
-	if g.successful == WinningQuests {
-		g.finish(Innocent)
-	} else if g.failed == WinningQuests {
-		g.finish(Traitor)
-	} else {
-		g.round++
-		g.advanceCaptain()
-		g.phase = ChoosingTeam
-		g.quest = nil
-		g.proposalVotes = nil
-		g.questCards = nil
-	}
+	g.resolveQuest(result)
 	return true, nil
 }
 
@@ -316,22 +324,40 @@ func (g *Engine) RoleFor(playerID string) (Role, bool) {
 }
 
 func (g *Engine) Snapshot() Snapshot {
+	questSizes := make([]int, TotalRounds)
+	for round := 1; round <= TotalRounds; round++ {
+		questSizes[round-1], _ = QuestSizeFor(len(g.players), round)
+	}
 	state := Snapshot{
 		Active: g.active, Phase: g.phase, Round: g.round, TotalRounds: TotalRounds,
 		Players:           append([]Player(nil), g.players...),
 		Quest:             append([]Player(nil), g.quest...),
+		QuestSize:         g.currentQuestSize(),
+		QuestSizes:        questSizes,
 		ProposalVotesCast: len(g.proposalVotes), ProposalVotesNeeded: len(g.players),
+		RejectedProposals: g.rejectedTeams, ProposalRejectLimit: ProposalRejectionLimit,
 		QuestCardsPlayed: len(g.questCards), QuestCardsNeeded: len(g.quest),
 		SuccessfulQuests: g.successful, FailedQuests: g.failed,
+		QuestResults: append([]QuestResult(nil), g.questResults...),
 		LastProposal: copyProposal(g.lastProposal), LastQuest: copyQuest(g.lastQuest), Winner: g.winner,
 	}
 	if len(g.players) > 0 {
 		state.Captain = g.players[g.captainIndex]
 	}
+	for _, player := range g.quest {
+		if _, submitted := g.questCards[player.ID]; submitted {
+			state.SubmittedQuestPlayers = append(state.SubmittedQuestPlayers, player.ID)
+		}
+	}
 	if g.phase == GameComplete {
 		state.Traitors = append([]Player(nil), g.traitors...)
 	}
 	return state
+}
+
+func (g *Engine) currentQuestSize() int {
+	size, _ := QuestSizeFor(len(g.players), g.round)
+	return size
 }
 
 // Cancel abandons an active game, for example when a player disconnects.
@@ -366,6 +392,29 @@ func (g *Engine) onQuest(playerID string) bool {
 
 func (g *Engine) advanceCaptain() {
 	g.captainIndex = (g.captainIndex + 1) % len(g.players)
+}
+
+func (g *Engine) resolveQuest(result QuestResult) {
+	g.lastQuest = &result
+	g.questResults = append(g.questResults, result)
+	if result.Succeeded {
+		g.successful++
+	} else {
+		g.failed++
+	}
+
+	if g.successful == WinningQuests {
+		g.finish(Innocent)
+	} else if g.failed == WinningQuests {
+		g.finish(Traitor)
+	} else {
+		g.round++
+		g.advanceCaptain()
+		g.phase = ChoosingTeam
+		g.quest = nil
+		g.proposalVotes = nil
+		g.questCards = nil
+	}
 }
 
 func (g *Engine) finish(winner Role) {

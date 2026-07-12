@@ -15,9 +15,14 @@ type Participant struct {
 }
 
 type presenceSnapshot struct {
-	Participants []Participant  `json:"participants"`
-	Game         *game.Snapshot `json:"game,omitempty"`
-	Role         string         `json:"role,omitempty"`
-	Host         bool           `json:"host"`
-	PlayerID     string         `json:"playerId"`
+	Participants                  []Participant  `json:"participants"`
+	Game                          *game.Snapshot `json:"game,omitempty"`
+	Role                          string         `json:"role,omitempty"`
+	PendingRoleConfirmations      []game.Player  `json:"pendingRoleConfirmations,omitempty"`
+	PendingProposalConfirmations  []game.Player  `json:"pendingProposalConfirmations,omitempty"`
+	PendingGameStartConfirmations []game.Player  `json:"pendingGameStartConfirmations,omitempty"`
+	GameStartPlayers              []game.Player  `json:"gameStartPlayers,omitempty"`
+	GameStarting                  bool           `json:"gameStarting,omitempty"`
+	Host                          bool           `json:"host"`
+	PlayerID                      string         `json:"playerId"`
 }

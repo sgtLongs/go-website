@@ -8,9 +8,49 @@
     <script src="/assets/js/room.js" defer></script>
 </head>
 <body>
+    <section id="proposal-result-announcement" class="proposal-result-announcement" role="button" tabindex="0" aria-labelledby="proposal-result-title" aria-describedby="proposal-result-detail proposal-result-action" hidden>
+        <div class="proposal-result-announcement-content">
+            <p class="eyebrow">Team vote</p>
+            <h2 id="proposal-result-title"></h2>
+            <p id="proposal-result-detail" class="proposal-result-detail"></p>
+            <div id="proposal-result-counts" class="proposal-result-counts" hidden>
+                <div class="accepted"><strong id="proposal-accept-count">0</strong><span>Accept</span></div>
+                <div class="rejected"><strong id="proposal-reject-count">0</strong><span>Reject</span></div>
+                <div class="failures">
+                    <ol id="proposal-vote-failure-tracker" class="vote-failure-tracker"></ol>
+                    <span>Failed team votes</span>
+                </div>
+            </div>
+            <p id="proposal-result-action" class="proposal-result-action"></p>
+        </div>
+    </section>
+    <section id="quest-result-announcement" class="quest-result-announcement" role="button" tabindex="0" aria-labelledby="quest-result-title" aria-describedby="quest-result-detail quest-result-action" hidden>
+        <div class="quest-result-announcement-content">
+            <p class="eyebrow">Quest result</p>
+            <h2 id="quest-result-title"></h2>
+            <p id="quest-result-detail" class="quest-result-detail"></p>
+            <p id="quest-result-action" class="quest-result-action"></p>
+        </div>
+    </section>
+    <section id="role-confirmation" class="role-confirmation" role="button" tabindex="0" aria-labelledby="role-confirmation-title" aria-describedby="role-confirmation-help role-confirmation-action" hidden>
+        <div class="role-confirmation-content">
+            <p class="eyebrow">Your secret role</p>
+            <p id="role-confirmation-title" class="role-confirmation-title"></p>
+            <p id="role-confirmation-help" class="role-confirmation-help"></p>
+            <p id="role-confirmation-action" class="role-confirmation-action">Click anywhere to confirm and continue</p>
+        </div>
+    </section>
+    <section id="game-starting" class="game-starting" aria-labelledby="game-starting-title" hidden>
+        <div class="game-starting-content">
+            <p class="eyebrow">Get ready</p>
+            <h2 id="game-starting-title">Game starting</h2>
+            <p>Everyone has readied up, the game will start shortly.</p>
+            <ul id="game-starting-players" class="team-list"></ul>
+            <button id="game-starting-ready" type="button">Ready up</button>
+            <p id="game-starting-status" class="game-starting-status"></p>
+        </div>
+    </section>
     <main class="room-shell">
-        <p class="eyebrow">Social deduction</p>
-        <h1>Lobby <span id="room-name"></span></h1>
 
         <section id="join-panel" class="panel">
             <form id="join-form">
@@ -22,15 +62,6 @@
             </form>
         </section>
 
-        <section id="presence-panel" class="panel" hidden>
-            <div class="status-row">
-                <span id="connection-dot" class="status-dot"></span>
-                <span id="connection-status" role="status">Connecting…</span>
-            </div>
-            <h2>People here (<span id="participant-count">0</span>)</h2>
-            <ul id="participant-list" aria-live="polite"></ul>
-        </section>
-
         <section id="game-panel" class="panel" hidden>
             <div id="waiting-view">
                 <h2>Ready to play?</h2>
@@ -40,16 +71,24 @@
                 </form>
             </div>
             <div id="active-view" hidden>
-                <div class="game-heading">
+                <section id="role-waiting-view" class="player-status-view" aria-labelledby="role-waiting-title" hidden>
+                    <h2 id="role-waiting-title">Waiting for everyone</h2>
+                    <p>These players are still reading their secret role.</p>
+                    <ul id="role-confirmation-players" class="team-list"></ul>
+                </section>
+                <div id="main-game-view">
+                <section class="quest-board" aria-labelledby="quest-board-title">
+                    <h3 id="quest-board-title">Quest progress</h3>
+                    <ol id="quest-cards" class="quest-cards"></ol>
+                </section>
+
+                <section class="vote-failure-board" aria-labelledby="vote-failure-title">
                     <div>
-                        <p class="eyebrow">Round <span id="round-number">1</span> of 5</p>
-                        <h2>Captain: <span id="captain-name"></span></h2>
+                        <h3 id="vote-failure-title">Voting failures</h3>
+                        <p>Five rejected teams automatically fail the quest.</p>
                     </div>
-                    <div class="score" aria-label="Quest score">
-                        <span class="success-score">✓ <strong id="success-count">0</strong></span>
-                        <span class="fail-score">✕ <strong id="fail-count">0</strong></span>
-                    </div>
-                </div>
+                    <ol id="vote-failure-tracker" class="vote-failure-tracker"></ol>
+                </section>
 
                 <details class="role-card">
                     <summary>Your secret role</summary>
@@ -60,19 +99,28 @@
                 <p id="round-result" class="round-result" role="status" hidden></p>
 
                 <section id="choosing-view" class="phase-view" hidden>
-                    <div id="captain-controls" hidden>
-                        <h3>Choose three players for the quest</h3>
+                    <div id="captain-controls" class="quest-team-selector" hidden>
+                        <ol id="captain-quest-cards" class="captain-quest-cards" aria-label="Quest progress"></ol>
+                        <h3>Choose <span id="required-team-size"></span> players for the quest</h3>
+                        <div class="captain-vote-failures">
+                            <span>Failed team votes</span>
+                            <ol id="captain-vote-failure-tracker" class="vote-failure-tracker"></ol>
+                        </div>
                         <form id="quest-team-form">
                             <fieldset id="quest-team-options"></fieldset>
+                            <p id="captain-selection-error" class="captain-selection-error" role="alert" hidden></p>
                             <button type="submit">Submit team</button>
                         </form>
                     </div>
                     <p id="waiting-for-captain"></p>
                 </section>
 
-                <section id="proposal-view" class="phase-view" hidden>
-                    <h3>Proposed quest team</h3>
-                    <ul id="proposed-team" class="team-list"></ul>
+                <section id="proposal-view" class="phase-view proposal-view" hidden>
+                    <div class="proposal-team">
+                        <p class="eyebrow">Team vote</p>
+                        <h3>Selected for this quest</h3>
+                        <ul id="proposed-team" class="team-list proposed-team"></ul>
+                    </div>
                     <div id="proposal-controls">
                         <p>Should this quest begin? Your vote is anonymous.</p>
                         <div class="choice-row">
@@ -83,7 +131,7 @@
                     <p id="proposal-progress"></p>
                 </section>
 
-                <section id="quest-view" class="phase-view" hidden>
+                <section id="quest-view" class="phase-view quest-view" hidden>
                     <h3>The quest is underway</h3>
                     <ul id="quest-team" class="team-list"></ul>
                     <div id="quest-controls" hidden>
@@ -95,15 +143,31 @@
                     </div>
                     <p id="quest-progress"></p>
                 </section>
+                </div>
             </div>
             <div id="ended-view" hidden>
                 <p class="eyebrow">Game over</p>
                 <h2 id="winner-message"></h2>
+                <p id="personal-result" class="personal-result"></p>
+                <p id="victory-reason" class="victory-reason"></p>
                 <p>The traitor was <strong id="traitor-name"></strong>.</p>
+                <section class="quest-board" aria-labelledby="final-quest-board-title">
+                    <h3 id="final-quest-board-title">Quest results</h3>
+                    <ol id="final-quest-cards" class="quest-cards"></ol>
+                </section>
                 <p id="final-score"></p>
                 <p id="next-game-message">Waiting for the host to start a new game.</p>
             </div>
             <p id="game-error" class="error" role="alert"></p>
+        </section>
+
+        <section id="presence-panel" class="panel" hidden>
+            <div class="status-row">
+                <span id="connection-dot" class="status-dot"></span>
+                <span id="connection-status" role="status">Connecting…</span>
+            </div>
+            <h2>People here (<span id="participant-count">0</span>)</h2>
+            <ul id="participant-list" aria-live="polite"></ul>
         </section>
     </main>
 </body>
