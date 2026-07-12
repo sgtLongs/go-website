@@ -11,13 +11,25 @@ import (
 
 // Handler translates Gin requests into calls to the realtime service.
 type Handler struct {
-	service  *Service
-	upgrader websocket.Upgrader
+	service   *Service
+	upgrader  websocket.Upgrader
+	authorize func(*gin.Context) bool
+	isHost    func(*gin.Context) bool
 }
 
-func NewHandler(service *Service) *Handler {
+func NewHandler(service *Service, authorize ...func(*gin.Context) bool) *Handler {
+	var authorizeRequest func(*gin.Context) bool
+	if len(authorize) > 0 {
+		authorizeRequest = authorize[0]
+	}
+	var hostRequest func(*gin.Context) bool
+	if len(authorize) > 1 {
+		hostRequest = authorize[1]
+	}
 	return &Handler{
-		service: service,
+		service:   service,
+		authorize: authorizeRequest,
+		isHost:    hostRequest,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -37,6 +49,10 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name must be 1 to 40 characters"})
 		return
 	}
+	if h.authorize != nil && !h.authorize(c) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "join this lobby before connecting"})
+		return
+	}
 
 	connection, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -45,7 +61,8 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 
 	// HandleConnection blocks until this browser disconnects. Gin gives each
 	// request its own goroutine, so other requests continue normally.
-	h.service.HandleConnection(roomID, name, connection)
+	host := h.isHost != nil && h.isHost(c)
+	h.service.HandleConnection(roomID, name, host, connection)
 }
 
 func sameHostOrigin(r *http.Request) bool {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sgtLongs/go-website/frontend"
+	"github.com/sgtLongs/go-website/internal/lobby"
 	"github.com/sgtLongs/go-website/internal/realtime"
 )
 
@@ -36,23 +37,34 @@ func newRouter() *gin.Engine {
 	}
 
 	presenceService := realtime.NewService()
-	realtimeHandler := realtime.NewHandler(presenceService)
+	lobbyService := lobby.NewService()
+	lobbyHandler := lobby.NewHandler(lobbyService, presenceService.ParticipantCount)
+	realtimeHandler := realtime.NewHandler(presenceService, lobbyHandler.AuthorizedRequest, lobbyHandler.HostRequest)
 	assets, err := fs.Sub(frontend.Files, "assets")
 	if err != nil {
 		panic(err)
 	}
 
 	router.GET("/", func(c *gin.Context) {
-		c.FileFromFS("html/index.html", http.FS(frontend.Files))
+		contents, err := fs.ReadFile(frontend.Files, "html/index.html")
+		if err != nil {
+			c.String(http.StatusInternalServerError, "could not load index page")
+			return
+		}
+
+		c.Data(http.StatusOK, "text/html; charset=utf-8", contents)
 	})
 	router.StaticFS("/assets", http.FS(assets))
-	router.GET("/room/:roomID", func(c *gin.Context) {
+	router.GET("/room/:roomID", lobbyHandler.RequireRoomAccess, func(c *gin.Context) {
 		if !realtime.ValidRoomID(c.Param("roomID")) {
 			c.String(http.StatusBadRequest, "invalid room ID")
 			return
 		}
 		c.FileFromFS("html/room.html", http.FS(frontend.Files))
 	})
+	router.GET("/api/lobbies", lobbyHandler.List)
+	router.POST("/api/lobbies", lobbyHandler.Create)
+	router.POST("/api/lobbies/:lobbyID/join", lobbyHandler.Join)
 	router.GET("/ws/rooms/:roomID", realtimeHandler.ServeWebSocket)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

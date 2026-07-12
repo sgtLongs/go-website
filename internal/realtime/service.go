@@ -23,12 +23,16 @@ func ValidRoomID(roomID string) bool {
 	return roomIDPattern.MatchString(roomID)
 }
 
+func (s *Service) ParticipantCount(roomID string) int {
+	return s.manager.ParticipantCount(roomID)
+}
+
 // HandleConnection registers one browser connection and owns it until the
 // connection closes. HTTP-specific validation stays in the controller.
-func (s *Service) HandleConnection(roomID, name string, connection *websocket.Conn) {
+func (s *Service) HandleConnection(roomID, name string, host bool, connection *websocket.Conn) {
 	room := s.manager.Room(roomID)
 	client := &Client{
-		participant: Participant{ID: uuid.NewString(), Name: name},
+		participant: Participant{ID: uuid.NewString(), Name: name, Host: host},
 		room:        room,
 		connection:  connection,
 		send:        make(chan []byte, 32),

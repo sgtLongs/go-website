@@ -2,13 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1"
-    >
-    <title>Local Game Website</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Game Lobbies</title>
+    <link rel="stylesheet" href="/assets/css/lobbies.css">
+    <script src="/assets/js/lobbies.js" defer></script>
 </head>
 <body>
-    <h1>index</h1>
+    <main class="lobby-shell">
+        <header>
+            <p class="eyebrow">Local game</p>
+            <h1>Choose a lobby</h1>
+            <p>Create a private lobby or join one with its password.</p>
+        </header>
+
+        <section class="panel">
+            <h2>Create a lobby</h2>
+            <form id="create-form">
+                <label>Lobby name <input name="name" maxlength="60" required></label>
+                <label>Password <input name="password" type="password" minlength="4" maxlength="72" required></label>
+                <button type="submit">Create lobby</button>
+            </form>
+        </section>
+
+        <section class="panel">
+            <div class="list-heading">
+                <h2>Available lobbies</h2>
+                <button id="refresh" class="secondary" type="button">Refresh</button>
+            </div>
+            <p id="list-status" role="status">Loading…</p>
+            <ul id="lobby-list"></ul>
+        </section>
+
+        <dialog id="join-dialog">
+            <form id="join-form">
+                <h2>Join <span id="join-name"></span></h2>
+                <label>Password <input name="password" type="password" maxlength="72" required autofocus></label>
+                <p id="join-error" class="error" role="alert"></p>
+                <div class="actions">
+                    <button id="cancel-join" class="secondary" type="button">Cancel</button>
+                    <button type="submit">Join lobby</button>
+                </div>
+            </form>
+        </dialog>
+
+        <p id="page-error" class="error" role="alert"></p>
+    </main>
 </body>
 </html>

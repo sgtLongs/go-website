@@ -3,21 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Presence Room</title>
+    <title>Social Deduction Lobby</title>
     <link rel="stylesheet" href="/assets/css/room.css">
     <script src="/assets/js/room.js" defer></script>
 </head>
 <body>
     <main class="room-shell">
-        <p class="eyebrow">Local presence</p>
-        <h1>Room <span id="room-name"></span></h1>
+        <p class="eyebrow">Social deduction</p>
+        <h1>Lobby <span id="room-name"></span></h1>
 
         <section id="join-panel" class="panel">
             <form id="join-form">
                 <label for="display-name">What should people call you?</label>
                 <div class="join-row">
                     <input id="display-name" name="name" maxlength="40" required autofocus>
-                    <button type="submit">Join room</button>
+                    <button type="submit">Enter lobby</button>
                 </div>
             </form>
         </section>
@@ -29,6 +29,81 @@
             </div>
             <h2>People here (<span id="participant-count">0</span>)</h2>
             <ul id="participant-list" aria-live="polite"></ul>
+        </section>
+
+        <section id="game-panel" class="panel" hidden>
+            <div id="waiting-view">
+                <h2>Ready to play?</h2>
+                <p id="waiting-message">Waiting for the host to start a game.</p>
+                <form id="start-form" class="start-row" hidden>
+                    <button type="submit">Start game</button>
+                </form>
+            </div>
+            <div id="active-view" hidden>
+                <div class="game-heading">
+                    <div>
+                        <p class="eyebrow">Round <span id="round-number">1</span> of 5</p>
+                        <h2>Captain: <span id="captain-name"></span></h2>
+                    </div>
+                    <div class="score" aria-label="Quest score">
+                        <span class="success-score">✓ <strong id="success-count">0</strong></span>
+                        <span class="fail-score">✕ <strong id="fail-count">0</strong></span>
+                    </div>
+                </div>
+
+                <details class="role-card">
+                    <summary>Your secret role</summary>
+                    <p id="role" class="role">Assigning…</p>
+                    <p id="role-help"></p>
+                </details>
+
+                <p id="round-result" class="round-result" role="status" hidden></p>
+
+                <section id="choosing-view" class="phase-view" hidden>
+                    <div id="captain-controls" hidden>
+                        <h3>Choose three players for the quest</h3>
+                        <form id="quest-team-form">
+                            <fieldset id="quest-team-options"></fieldset>
+                            <button type="submit">Submit team</button>
+                        </form>
+                    </div>
+                    <p id="waiting-for-captain"></p>
+                </section>
+
+                <section id="proposal-view" class="phase-view" hidden>
+                    <h3>Proposed quest team</h3>
+                    <ul id="proposed-team" class="team-list"></ul>
+                    <div id="proposal-controls">
+                        <p>Should this quest begin? Your vote is anonymous.</p>
+                        <div class="choice-row">
+                            <button id="approve-team" type="button">Yes, begin</button>
+                            <button id="reject-team" class="danger" type="button">No, reject</button>
+                        </div>
+                    </div>
+                    <p id="proposal-progress"></p>
+                </section>
+
+                <section id="quest-view" class="phase-view" hidden>
+                    <h3>The quest is underway</h3>
+                    <ul id="quest-team" class="team-list"></ul>
+                    <div id="quest-controls" hidden>
+                        <p>Play one quest card. Your card is anonymous.</p>
+                        <div class="choice-row">
+                            <button id="succeed-quest" type="button">Succeed</button>
+                            <button id="fail-quest" class="danger" type="button" hidden>Fail</button>
+                        </div>
+                    </div>
+                    <p id="quest-progress"></p>
+                </section>
+            </div>
+            <div id="ended-view" hidden>
+                <p class="eyebrow">Game over</p>
+                <h2 id="winner-message"></h2>
+                <p>The traitor was <strong id="traitor-name"></strong>.</p>
+                <p id="final-score"></p>
+                <p id="next-game-message">Waiting for the host to start a new game.</p>
+            </div>
+            <p id="game-error" class="error" role="alert"></p>
         </section>
     </main>
 </body>

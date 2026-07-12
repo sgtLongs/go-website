@@ -1,6 +1,7 @@
 package realtime
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,6 +22,12 @@ type Client struct {
 	send        chan []byte
 }
 
+type clientCommand struct {
+	Type      string   `json:"type"`
+	PlayerIDs []string `json:"playerIds"`
+	Choice    bool     `json:"choice"`
+}
+
 func (c *Client) readPump() {
 	defer func() {
 		c.room.unregister <- c
@@ -34,8 +41,20 @@ func (c *Client) readPump() {
 	})
 
 	for {
-		if _, _, err := c.connection.ReadMessage(); err != nil {
+		_, message, err := c.connection.ReadMessage()
+		if err != nil {
 			return
+		}
+		var command clientCommand
+		if json.Unmarshal(message, &command) != nil {
+			continue
+		}
+		switch command.Type {
+		case "start_game", "propose_quest", "vote_proposal", "play_quest":
+			c.room.commands <- roomCommand{
+				client: c, kind: command.Type,
+				playerIDs: command.PlayerIDs, choice: command.Choice,
+			}
 		}
 	}
 }
