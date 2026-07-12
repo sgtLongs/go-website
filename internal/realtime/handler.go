@@ -3,34 +3,27 @@ package realtime
 import (
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-var roomIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-
+// Handler translates Gin requests into calls to the realtime service.
 type Handler struct {
-	manager  *Manager
+	service  *Service
 	upgrader websocket.Upgrader
 }
 
-func NewHandler(manager *Manager) *Handler {
+func NewHandler(service *Service) *Handler {
 	return &Handler{
-		manager: manager,
+		service: service,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 			CheckOrigin:     sameHostOrigin,
 		},
 	}
-}
-
-func ValidRoomID(roomID string) bool {
-	return roomIDPattern.MatchString(roomID)
 }
 
 func (h *Handler) ServeWebSocket(c *gin.Context) {
@@ -50,16 +43,9 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 		return
 	}
 
-	client := &Client{
-		participant: Participant{ID: uuid.NewString(), Name: name},
-		room:        h.manager.Room(roomID),
-		connection:  connection,
-		send:        make(chan []byte, 32),
-	}
-	client.room.register <- client
-
-	go client.writePump()
-	client.readPump()
+	// HandleConnection blocks until this browser disconnects. Gin gives each
+	// request its own goroutine, so other requests continue normally.
+	h.service.HandleConnection(roomID, name, connection)
 }
 
 func sameHostOrigin(r *http.Request) bool {

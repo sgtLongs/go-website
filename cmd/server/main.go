@@ -35,8 +35,8 @@ func newRouter() *gin.Engine {
 		panic(err)
 	}
 
-	manager := realtime.NewManager()
-	handler := realtime.NewHandler(manager)
+	presenceService := realtime.NewService()
+	realtimeHandler := realtime.NewHandler(presenceService)
 	assets, err := fs.Sub(frontend.Files, "assets")
 	if err != nil {
 		panic(err)
@@ -53,7 +53,7 @@ func newRouter() *gin.Engine {
 		}
 		c.FileFromFS("html/room.html", http.FS(frontend.Files))
 	})
-	router.GET("/ws/rooms/:roomID", handler.ServeWebSocket)
+	router.GET("/ws/rooms/:roomID", realtimeHandler.ServeWebSocket)
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

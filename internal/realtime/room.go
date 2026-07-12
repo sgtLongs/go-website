@@ -2,8 +2,6 @@ package realtime
 
 import "encoding/json"
 
-// Room serializes all changes to its client map through channels. Only run
-// touches clients, so the map does not need its own mutex.
 type Room struct {
 	id         string
 	clients    map[*Client]struct{}

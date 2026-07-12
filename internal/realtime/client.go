@@ -33,8 +33,6 @@ func (c *Client) readPump() {
 		return c.connection.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
-	// Reading is still required even though presence currently has no incoming
-	// app messages: it processes close and pong control frames.
 	for {
 		if _, _, err := c.connection.ReadMessage(); err != nil {
 			return
