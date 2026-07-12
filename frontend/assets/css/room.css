@@ -16,6 +16,61 @@ body {
     background: radial-gradient(circle at top, #23483b, #101513 60%);
 }
 body.confirming-role { overflow: hidden; }
+.sidebar-toggle { width: auto; min-height: 0; padding: .25rem; border: 0; border-radius: 0; background: transparent; color: #f3f7f5; font-size: 1.75rem; line-height: 1; box-shadow: none; }
+.sidebar-toggle > span {
+    position: relative;
+    display: block;
+    width: 1em;
+    height: .75em;
+}
+.sidebar-toggle > span::before {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    box-shadow: 0 -.3em currentColor, 0 .3em currentColor;
+    content: "";
+    transform: translateY(-50%);
+}
+.sidebar-toggle:hover { filter: none; color: #9af0c5; }
+.room-sidebar { position: fixed; z-index: 1003; inset: 0 auto 0 0; display: flex; flex-direction: column; width: min(20rem, 88vw); padding: 1.25rem; overflow-y: auto; background: #18211e; border-right: 1px solid #426356; box-shadow: .75rem 0 2rem #0008; transform: translateX(-105%); transition: transform .2s ease; }
+.room-sidebar.open { transform: translateX(0); }
+.sidebar-backdrop { position: fixed; z-index: 1001; inset: 0; background: #0009; }
+.sidebar-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.sidebar-header h2 { margin: 0; }
+.sidebar-close { min-width: 2.75rem; padding: 0; background: transparent; color: #f3f7f5; font-size: 2rem; }
+.room-sidebar nav { display: grid; gap: .75rem; margin-top: 2rem; }
+.room-sidebar #presence-panel { margin: auto 0 0; padding: 1rem 0 0; border: 0; border-top: 1px solid #426356; border-radius: 0; background: transparent; }
+.room-sidebar #presence-panel h2 { margin-bottom: .5rem; font-size: 1rem; }
+.room-sidebar #participant-list { margin-bottom: 0; }
+.sidebar-action { display: flex; align-items: center; width: 100%; min-height: 3rem; padding: .75rem 1rem; border: 0; border-radius: .55rem; background: #75dfa9; color: #102019; font: inherit; font-weight: 700; text-decoration: none; }
+.sidebar-action.danger { background: #e38b8b; color: #2b1010; }
+.sidebar-action.secondary { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+.end-game-dialog { width: min(92vw, 30rem); padding: 1.5rem; border: 1px solid #a96161; border-radius: 1rem; background: #18211e; color: #f3f7f5; box-shadow: 0 1rem 4rem #000b; }
+.end-game-dialog::backdrop { background: #080b0acc; }
+.end-game-dialog .eyebrow { margin-top: 0; color: #ffabab; }
+.end-game-dialog h2 { margin: 0 0 .75rem; font-size: clamp(2rem, 8vw, 3.5rem); }
+.end-game-dialog p:not(.eyebrow) { color: #bac3bf; line-height: 1.5; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1.5rem; }
+.dialog-actions #cancel-end-game, .dialog-actions #cancel-leave-room { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+body.sidebar-open { overflow: hidden; }
+@media (prefers-reduced-motion: reduce) { .room-sidebar { transition: none; } }
+
+body.gameplay-active .quest-team-selector,
+body.gameplay-active .proposal-view,
+body.gameplay-active .quest-view,
+body.gameplay-active .player-status-view,
+body.gameplay-active .role-confirmation,
+body.gameplay-active .proposal-result-announcement,
+body.gameplay-active .quest-result-announcement {
+    padding-top: 5rem;
+}
+body.gameplay-active { height: 100vh; height: 100dvh; overflow: hidden; align-items: start; }
+body.gameplay-active .room-shell { padding: .75rem 0; }
+body.gameplay-active #game-panel { padding: .75rem; }
 
 .game-starting {
     position: fixed;
@@ -30,11 +85,53 @@ body.confirming-role { overflow: hidden; }
     background: radial-gradient(circle at top, #344f68, #101419 65%);
     text-align: center;
 }
-.game-starting-content { width: min(100%, 60rem); }
+.game-starting.player-ready::after {
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 58%, #75dfa90a 76%, #75dfa938 100%);
+    box-shadow: inset 0 0 3rem #75dfa94d;
+    content: "";
+    pointer-events: none;
+}
+.game-starting.player-unready::after {
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 58%, #e38b8b0a 76%, #e38b8b55 100%);
+    box-shadow: inset 0 0 3rem #e38b8b66;
+    content: "";
+    pointer-events: none;
+    animation: unready-glow-fade .7s ease-out forwards;
+}
+@keyframes unready-glow-fade {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+.game-starting.countdown-pulse::before {
+    position: fixed;
+    z-index: 1;
+    inset: 0;
+    background: radial-gradient(ellipse at center, transparent 10%, #75dfa90a 60%, #75dfa938 100%);
+    content: "";
+    pointer-events: none;
+    animation: countdown-pulse-fade .55s ease-out forwards;
+}
+@keyframes countdown-pulse-fade {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+.game-starting-content { position: relative; z-index: 2; width: min(100%, 60rem); }
 .game-starting h2 { margin: 0; font-size: clamp(3.5rem, 13vw, 8rem); line-height: .9; text-transform: uppercase; }
+.game-starting-countdown { margin: clamp(1rem, 3vh, 2rem) 0 0; color: #9af0c5; font-size: clamp(4rem, 18vw, 9rem); font-weight: 900; line-height: 1; }
 .game-starting .team-list { justify-content: center; margin: clamp(1.5rem, 5vh, 3rem) 0; }
 .game-starting .team-list li { min-width: 10rem; }
 .game-starting .team-list li.ready { border-color: #4e9a73; background: #183829; color: #a9f0cc; }
+.game-starting .team-list li.just-unreadied { animation: player-unreadied 1.8s ease-out; }
+@keyframes player-unreadied {
+    0%, 35% { border-color: #e38b8b; background: #4b2228; color: #ffd4d4; box-shadow: 0 0 1.5rem #e38b8b99; transform: scale(1.06); }
+    100% { box-shadow: none; transform: none; }
+}
 #game-starting-ready { min-width: min(100%, 18rem); min-height: 4rem; font-size: 1.2rem; }
 .game-starting-status { min-height: 1.5em; color: #bac3bf; font-weight: 700; }
 
@@ -170,7 +267,9 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .start-row { display: flex; align-items: end; gap: .75rem; }
 .start-row label { margin: 0; }
 .quest-board { margin: 1rem 0; }
-.quest-board h3 { margin: 0 0 .65rem; font-size: 1rem; }
+#main-game-view > .quest-board { margin-top: 0; }
+.quest-board-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .65rem; }
+.quest-board-header h3 { margin: 0; font-size: 1rem; }
 .quest-cards {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -226,9 +325,9 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     font-weight: 800;
 }
 .vote-failure-marker.filled { border-color: #a96161; background: #3b2020; color: #ffc1c1; }
-.role-card { margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; }
-.role-card summary { color: #75dfa9; cursor: pointer; font-weight: 700; }
-.role { margin: .75rem 0 .25rem; color: #75dfa9; font-size: clamp(2rem, 8vw, 4rem); font-weight: 900; text-transform: uppercase; }
+.role-card { display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
+.role-reveal { width: min(100%, 28rem); min-height: 3.5rem; }
+.role-reveal.revealed { border: 1px solid #75dfa9; background: #183829; color: #9af0c5; font-size: clamp(1.5rem, 6vw, 2.5rem); font-weight: 900; text-transform: uppercase; }
 .phase-view { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #31433c; }
 .phase-view h3 { margin-top: 0; font-size: 1.3rem; }
 fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem; margin: 0 0 1rem; padding: 0; border: 0; }
@@ -239,13 +338,33 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
     position: fixed;
     z-index: 10;
     inset: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(.35rem, 1.2vh, .75rem);
     width: 100%;
-    min-height: 100vh;
-    min-height: 100dvh;
-    padding: clamp(1rem, 3vw, 2.5rem);
-    overflow-y: auto;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    padding: max(.75rem, env(safe-area-inset-top)) clamp(.75rem, 3vw, 2.5rem) max(.75rem, env(safe-area-inset-bottom));
+    overflow: hidden;
     background: radial-gradient(circle at top, #23483b, #101513 60%);
 }
+body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-area-inset-top)); }
+.captain-controls-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: none;
+    container-type: inline-size;
+}
+.captain-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    align-self: center;
+    justify-content: center;
+    flex: none;
+}
+.quest-team-selector > .quest-cards { flex: none; width: min(100%, 90rem); margin: 0 auto; }
 .quest-team-selector.selection-error { z-index: 1000; }
 .quest-team-selector.selection-error::after {
     position: fixed;
@@ -256,47 +375,35 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
     pointer-events: none;
 }
 .quest-team-selector h3 {
-    margin: 0 0 clamp(1rem, 3vh, 2rem);
-    font-size: clamp(1.5rem, 4vw, 3rem);
+    flex: none;
+    margin: 0;
+    font-size: clamp(1.25rem, 3.5vw, 2.5rem);
     text-align: center;
 }
-.captain-quest-cards {
-    display: flex;
-    justify-content: center;
-    gap: .5rem;
-    margin: 0 auto clamp(.75rem, 2vh, 1.25rem);
-    padding: 0;
-    list-style: none;
-}
-.captain-quest-cards li {
-    display: grid;
-    place-items: center;
-    gap: .1rem;
-    min-width: clamp(3.75rem, 10vw, 6rem);
-    min-height: clamp(2rem, 5vw, 2.75rem);
-    padding: .25rem .45rem;
-    border: 1px solid #65756e;
-    border-radius: .5rem;
-    background: #18211e;
-    color: #bac3bf;
-    font-size: .85rem;
-    font-weight: 900;
-    line-height: 1.1;
-}
-.captain-quest-cards li small { color: #f3f7f5; font-size: clamp(.58rem, 1.5vw, .75rem); font-weight: 700; white-space: nowrap; }
-.captain-quest-cards li.succeeded { border-color: #75dfa9; background: #183829; color: #a9f0cc; }
-.captain-quest-cards li.failed { border-color: #e38b8b; background: #3b2020; color: #ffc1c1; }
 .captain-vote-failures {
+    position: absolute;
+    top: 50%;
+    left: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: .5rem;
-    margin: -.65rem 0 .75rem;
+    flex: none;
+    margin: 0;
     color: #bac3bf;
     font-size: .68rem;
     font-weight: 700;
     letter-spacing: .04em;
     text-transform: uppercase;
+    white-space: nowrap;
+    transform: translate(-50%, -50%);
+}
+@container (max-width: 15.5rem) {
+    .captain-vote-failures {
+        right: 0;
+        left: auto;
+        transform: translateY(-50%);
+    }
 }
 .captain-vote-failures .vote-failure-marker {
     width: 1rem;
@@ -306,17 +413,29 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
 }
 .quest-team-selector form {
     display: flex;
-    flex-direction: column;
-    min-height: calc(100vh - clamp(5rem, 12vh, 9rem));
-    min-height: calc(100dvh - clamp(5rem, 12vh, 9rem));
-}
-.quest-team-selector fieldset {
     flex: 1;
-    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
-    grid-auto-rows: minmax(5rem, 1fr);
-    align-content: center;
+    flex-direction: column;
+    gap: clamp(.5rem, 1.5vh, 1rem);
+    min-height: 0;
+}
+.quest-team-selector .quest-player-panel {
+    flex: 1 1 auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(4rem, auto);
+    align-content: start;
     width: min(100%, 90rem);
-    margin: 0 auto clamp(1rem, 3vh, 2rem);
+    min-height: 0;
+    margin: 0 auto;
+    padding: clamp(.5rem, 1.5vw, 1rem);
+    overflow-y: hidden;
+    border: 1px solid #426356;
+    border-radius: .8rem;
+    background: #10151399;
+    scrollbar-gutter: stable;
+}
+.quest-team-selector .quest-player-panel.double-stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow-y: auto;
 }
 .quest-team-selector .player-option {
     position: relative;
@@ -369,6 +488,7 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
 .quest-team-selector .player-option { isolation: isolate; }
 .quest-team-selector .player-option > * { position: relative; z-index: 1; }
 .quest-team-selector button[type="submit"] {
+    flex: none;
     width: min(100%, 32rem);
     min-height: 3.5rem;
     margin: 0 auto;
@@ -503,6 +623,36 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
 .quest-view .choice-row button { min-height: 8rem; font-size: clamp(1.25rem, 4vw, 2rem); }
 .quest-view #quest-progress { margin: 0; }
 .round-result { padding: .8rem 1rem; border-radius: .65rem; font-weight: 700; }
+.round-result.team-rejected-toast {
+    position: fixed;
+    z-index: 30;
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    left: max(1rem, env(safe-area-inset-left));
+    width: min(calc(100% - 2rem), 44rem);
+    margin: 0 auto;
+    box-shadow: 0 .75rem 2rem #0009;
+    cursor: pointer;
+    text-align: center;
+    user-select: none;
+    animation: team-rejected-toast-in .22s ease-out;
+}
+.round-result.team-rejected-toast.dismissing {
+    animation: team-rejected-toast-out .22s ease-in forwards;
+    pointer-events: none;
+}
+@keyframes team-rejected-toast-in {
+    from { opacity: 0; transform: translateY(calc(100% + 1.5rem)); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes team-rejected-toast-out {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(calc(100% + 1.5rem)); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .round-result.team-rejected-toast,
+    .round-result.team-rejected-toast.dismissing { animation: none; }
+}
 .round-result.succeeded { border: 1px solid #4e9a73; background: #183829; color: #a9f0cc; }
 .round-result.failed { border: 1px solid #a96161; background: #3b2020; color: #ffc1c1; }
 .personal-result { margin: 0; font-size: clamp(1.25rem, 4vw, 2rem); font-weight: 800; text-transform: uppercase; }
@@ -534,7 +684,22 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
 .host-badge { margin-left: .5rem; color: #75dfa9; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
 
 @media (max-width: 480px) {
+    /* Keep the vote-result action visible on short phone screens. */
+    body.gameplay-active .proposal-result-announcement.accepted,
+    body.gameplay-active .proposal-result-announcement.rejected {
+        padding-top: max(.75rem, env(safe-area-inset-top));
+    }
     .room-shell { width: min(96vw, 760px); padding: 1rem 0; }
+    body.gameplay-active .room-shell {
+        height: 100svh;
+        padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom));
+        overflow: hidden;
+    }
+    body.gameplay-active #game-panel {
+        max-height: 100%;
+        margin-bottom: 0;
+        overflow: hidden;
+    }
     .panel { padding: 1rem; }
     .join-row, .start-row { align-items: stretch; flex-direction: column; }
     .vote-failure-board { align-items: center; flex-direction: row; }
@@ -550,4 +715,5 @@ fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 
     .quest-view .choice-row { flex-direction: column; }
     .quest-view .choice-row button { min-height: 7rem; }
     .proposal-result-counts { grid-template-columns: 1fr; }
+    .dialog-actions { align-items: stretch; flex-direction: column; }
 }

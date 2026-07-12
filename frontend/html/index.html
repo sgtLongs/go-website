@@ -32,7 +32,7 @@
             <form id="create-form">
                 <h2>Create a lobby</h2>
                 <label>Lobby name <input name="name" maxlength="60" required autofocus></label>
-                <label>Password <input name="password" type="password" minlength="4" maxlength="72" required></label>
+                <label>Password <input name="password" type="text" minlength="4" maxlength="72" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required></label>
                 <p id="create-error" class="error" role="alert"></p>
                 <div class="actions">
                     <button id="cancel-create" class="secondary" type="button">Cancel</button>
@@ -44,7 +44,7 @@
         <dialog id="join-dialog">
             <form id="join-form">
                 <h2>Join <span id="join-name"></span></h2>
-                <label>Password <input name="password" type="password" maxlength="72" required autofocus></label>
+                <label>Password <input name="password" type="text" maxlength="72" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus></label>
                 <p id="join-error" class="error" role="alert"></p>
                 <div class="actions">
                     <button id="cancel-join" class="secondary" type="button">Cancel</button>

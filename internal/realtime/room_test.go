@@ -6,7 +6,7 @@ import (
 )
 
 func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
-	room := newRoom("game-room")
+	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)
 	guestOne := testClient(room, "Guest One", false)
 	guestTwo := testClient(room, "Guest Two", false)
@@ -42,7 +42,7 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 }
 
 func TestOnlyHostCanStartGame(t *testing.T) {
-	room := newRoom("game-room")
+	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)
 	guestOne := testClient(room, "Guest One", false)
 	guestTwo := testClient(room, "Guest Two", false)
@@ -60,7 +60,7 @@ func TestOnlyHostCanStartGame(t *testing.T) {
 }
 
 func TestGameStartsOnlyAfterEveryPlayerReadies(t *testing.T) {
-	room := newRoom("game-room")
+	room := newRoom("game-room", nil)
 	clients := []*Client{
 		testClient(room, "Host", true),
 		testClient(room, "Guest One", false),
@@ -82,17 +82,16 @@ func TestGameStartsOnlyAfterEveryPlayerReadies(t *testing.T) {
 
 	for i, client := range clients {
 		room.handleCommand(roomCommand{client: client, kind: "confirm_game_start"})
-		if i < len(clients)-1 {
-			if room.game.Active() {
-				t.Fatalf("game became active after only %d ready players", i+1)
-			}
-			for _, recipient := range clients {
-				if event := receiveEvent(t, recipient); event.Type != "game_start_confirmations_updated" {
-					t.Fatalf("event = %q, want game_start_confirmations_updated", event.Type)
-				}
+		if room.game.Active() {
+			t.Fatalf("game became active before the countdown after %d ready players", i+1)
+		}
+		for _, recipient := range clients {
+			if event := receiveEvent(t, recipient); event.Type != "game_start_confirmations_updated" {
+				t.Fatalf("event = %q, want game_start_confirmations_updated", event.Type)
 			}
 		}
 	}
+	room.handleCommand(roomCommand{kind: "launch_game", playerIDs: []string{"1"}})
 	if !room.game.Active() {
 		t.Fatal("game should become active after every player readies")
 	}
@@ -107,7 +106,7 @@ func TestGameStartsOnlyAfterEveryPlayerReadies(t *testing.T) {
 }
 
 func TestRoleConfirmationBroadcastsPlayersStillReading(t *testing.T) {
-	room := newRoom("game-room")
+	room := newRoom("game-room", nil)
 	clients := []*Client{
 		testClient(room, "Host", true),
 		testClient(room, "Guest One", false),
@@ -139,7 +138,7 @@ func TestRoleConfirmationBroadcastsPlayersStillReading(t *testing.T) {
 }
 
 func TestGameCommandsBroadcastOnlyPublicProgress(t *testing.T) {
-	room := newRoom("game-room")
+	room := newRoom("game-room", nil)
 	clients := []*Client{
 		testClient(room, "Host", true),
 		testClient(room, "Guest One", false),

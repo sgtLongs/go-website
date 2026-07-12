@@ -36,8 +36,8 @@ func newRouter() *gin.Engine {
 		panic(err)
 	}
 
-	presenceService := realtime.NewService()
 	lobbyService := lobby.NewService()
+	presenceService := realtime.NewService(lobbyService.Close)
 	lobbyHandler := lobby.NewHandler(lobbyService, presenceService.ParticipantCount)
 	realtimeHandler := realtime.NewHandler(presenceService, lobbyHandler.AuthorizedRequest, lobbyHandler.HostRequest)
 	assets, err := fs.Sub(frontend.Files, "assets")

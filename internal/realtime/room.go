@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync/atomic"
+	"time"
 
 	"github.com/sgtLongs/go-website/internal/game"
 )
@@ -32,9 +33,11 @@ type Room struct {
 	gameStartPlayers       []game.Player
 	gameStartConfirmations map[string]bool
 	count                  atomic.Int64
+	gameStartCountdown     uint64
+	onEmpty                func(*Room)
 }
 
-func newRoom(id string) *Room {
+func newRoom(id string, onEmpty func(*Room)) *Room {
 	return &Room{
 		id:                     id,
 		clients:                make(map[*Client]struct{}),
@@ -46,6 +49,7 @@ func newRoom(id string) *Room {
 		roleConfirmations:      make(map[string]bool),
 		proposalConfirmations:  make(map[string]bool),
 		gameStartConfirmations: make(map[string]bool),
+		onEmpty:                onEmpty,
 	}
 }
 
@@ -65,6 +69,12 @@ func (r *Room) run() {
 			delete(r.clients, client)
 			r.count.Add(-1)
 			close(client.send)
+			if len(r.clients) == 0 {
+				if r.onEmpty != nil {
+					r.onEmpty(r)
+				}
+				return
+			}
 			r.broadcastEvent("user_left", client.participant)
 			if r.gameStarting && r.gameStartHasPlayer(client.participant.ID) {
 				r.cancelGameStart("Game start cancelled because a player disconnected.")
@@ -123,15 +133,59 @@ func (r *Room) handleCommand(command roomCommand) {
 	switch command.kind {
 	case "start_game":
 		err = r.prepareGame(command.client)
+	case "end_game":
+		if !command.client.participant.Host {
+			r.queueError(command.client, "Only the host can end the game.")
+			return
+		}
+		r.game.Cancel()
+		r.gameStarting = false
+		r.gameStartPlayers = nil
+		r.gameStartConfirmations = make(map[string]bool)
+		r.roleConfirmations = make(map[string]bool)
+		r.proposalResultPending = false
+		r.proposalConfirmations = make(map[string]bool)
+		r.broadcastEvent("game_cancelled", map[string]string{"message": "The host ended the game."})
+		return
 	case "confirm_game_start":
 		if r.gameStarting && r.gameStartHasPlayer(command.client.participant.ID) {
-			r.gameStartConfirmations[command.client.participant.ID] = true
+			playerID := command.client.participant.ID
+			wasReady := r.gameStartConfirmations[playerID]
+			r.gameStartConfirmations[playerID] = !wasReady
 			if len(r.pendingGameStartConfirmations()) == 0 {
-				err = r.launchGame(r.gameStartPlayers)
+				r.gameStartCountdown++
+				countdown := r.gameStartCountdown
+				r.broadcastGameStartConfirmations(nil, true)
+				time.AfterFunc(3*time.Second, func() { r.commands <- roomCommand{kind: "launch_game", playerIDs: []string{fmt.Sprint(countdown)}} })
+				return
 			} else {
-				r.broadcastGameStartConfirmations()
+				var unreadied *game.Player
+				if wasReady {
+					r.gameStartCountdown++
+					for _, player := range r.gameStartPlayers {
+						if player.ID == playerID {
+							copy := player
+							unreadied = &copy
+							break
+						}
+					}
+				}
+				r.broadcastGameStartConfirmations(unreadied, false)
 				return
 			}
+		} else {
+			return
+		}
+	case "launch_game":
+		var countdown uint64
+		if len(command.playerIDs) != 1 {
+			return
+		}
+		if _, scanErr := fmt.Sscan(command.playerIDs[0], &countdown); scanErr != nil {
+			return
+		}
+		if r.gameStarting && countdown == r.gameStartCountdown && len(r.pendingGameStartConfirmations()) == 0 {
+			err = r.launchGame(r.gameStartPlayers)
 		} else {
 			return
 		}
@@ -265,8 +319,12 @@ func (r *Room) pendingGameStartConfirmations() []game.Player {
 	return pending
 }
 
-func (r *Room) broadcastGameStartConfirmations() {
-	r.broadcastEvent("game_start_confirmations_updated", map[string]any{"pendingPlayers": r.pendingGameStartConfirmations()})
+func (r *Room) broadcastGameStartConfirmations(unreadied *game.Player, countdown bool) {
+	data := map[string]any{"pendingPlayers": r.pendingGameStartConfirmations(), "countdown": countdown}
+	if unreadied != nil {
+		data["unreadiedPlayer"] = unreadied
+	}
+	r.broadcastEvent("game_start_confirmations_updated", data)
 }
 
 func (r *Room) cancelGameStart(message string) {

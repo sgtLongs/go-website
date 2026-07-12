@@ -3,6 +3,7 @@
     const byID = (id) => document.querySelector(`#${id}`);
     const joinPanel = byID("join-panel");
     const presencePanel = byID("presence-panel");
+    const presencePanelHome = byID("presence-panel-home");
     const joinForm = byID("join-form");
     const displayName = byID("display-name");
     const status = byID("connection-status");
@@ -17,7 +18,7 @@
     const waitingMessage = byID("waiting-message");
     const nextGameMessage = byID("next-game-message");
     const roleElement = byID("role");
-    const roleHelp = byID("role-help");
+    const roleReveal = byID("role-reveal");
     const roleConfirmation = byID("role-confirmation");
     const roleConfirmationTitle = byID("role-confirmation-title");
     const roleConfirmationHelp = byID("role-confirmation-help");
@@ -34,7 +35,21 @@
     const proposalResultDetail = byID("proposal-result-detail");
     const proposalResultCounts = byID("proposal-result-counts");
     const proposalResultAction = byID("proposal-result-action");
+    const roundResult = byID("round-result");
     const gameError = byID("game-error");
+    const sidebar = byID("room-sidebar");
+    const sidebarToggle = byID("sidebar-toggle");
+    const captainSidebarToggle = byID("captain-sidebar-toggle");
+    const sidebarClose = byID("sidebar-close");
+    const sidebarBackdrop = byID("sidebar-backdrop");
+    const endGameButton = byID("end-game");
+    const endGameDialog = byID("end-game-dialog");
+    const cancelEndGame = byID("cancel-end-game");
+    const confirmEndGame = byID("confirm-end-game");
+    const leaveRoomButton = byID("leave-room");
+    const leaveRoomDialog = byID("leave-room-dialog");
+    const cancelLeaveRoom = byID("cancel-leave-room");
+    const confirmLeaveRoom = byID("confirm-leave-room");
 
     const participants = new Map();
     let socket;
@@ -42,9 +57,11 @@
     let reconnectAttempts = 0;
     let chosenName = "";
     let intentionallyClosed = false;
+    let sidebarReturnFocus = sidebarToggle;
     let isHost = false;
     let playerID = "";
     let role = "";
+    let roleRevealed = false;
     let roleConfirmed = false;
     let pendingRoleConfirmations = [];
     let pendingGameStartConfirmations = [];
@@ -54,6 +71,8 @@
     let gameStartCountdownActive = false;
     let gameStartCountdownSeconds = 0;
     let gameStartCountdownTimer;
+    let gameStartPulseTimer;
+    let unreadyGlowTimer;
     let gameState = null;
     let phaseKey = "";
     let submittedProposalVote = false;
@@ -67,8 +86,51 @@
     let proposalResultCountdownTimer;
     let deferredQuestResult = null;
     let questTeamSelectionOrder = [];
+    let captainLayoutFrame;
+    let rejectedTeamToastKey = "";
+    let rejectedTeamToastTimer;
+    let rejectedTeamToastHideTimer;
+    let rejectedTeamToastExitAnimation;
 
     displayName.value = window.localStorage.getItem("presence-display-name") || "";
+
+    sidebarToggle.addEventListener("click", openSidebar);
+    captainSidebarToggle.addEventListener("click", openSidebar);
+    sidebarClose.addEventListener("click", closeSidebar);
+    sidebarBackdrop.addEventListener("click", closeSidebar);
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && sidebar.classList.contains("open")) closeSidebar();
+    });
+    window.addEventListener("resize", scheduleCaptainPlayerLayout);
+    endGameButton.addEventListener("click", () => {
+        closeSidebar(false);
+        endGameDialog.showModal();
+    });
+    cancelEndGame.addEventListener("click", () => endGameDialog.close());
+    confirmEndGame.addEventListener("click", () => {
+        send({ type: "end_game" });
+        endGameDialog.close();
+    });
+    endGameDialog.addEventListener("click", (event) => {
+        if (event.target === endGameDialog) endGameDialog.close();
+    });
+    roleReveal.addEventListener("click", () => {
+        roleRevealed = !roleRevealed;
+        renderRole();
+    });
+    leaveRoomButton.addEventListener("click", () => {
+        closeSidebar(false);
+        leaveRoomDialog.showModal();
+    });
+    cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
+    confirmLeaveRoom.addEventListener("click", () => {
+        intentionallyClosed = true;
+        socket?.close();
+        window.location.assign("/");
+    });
+    leaveRoomDialog.addEventListener("click", (event) => {
+        if (event.target === leaveRoomDialog) leaveRoomDialog.close();
+    });
 
     joinForm.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -92,10 +154,11 @@
         send({ type: "start_game" });
     });
     gameStartingReady.addEventListener("click", () => {
-        if (gameStartConfirmed) return;
-        gameStartConfirmed = true;
+        const wasReady = gameStartConfirmed;
+        gameStartConfirmed = !gameStartConfirmed;
         send({ type: "confirm_game_start" });
         renderGameStarting();
+        if (wasReady) showUnreadyGlow();
     });
 
     byID("quest-team-form").addEventListener("submit", (event) => {
@@ -129,6 +192,9 @@
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
         confirmProposalResult();
+    });
+    document.addEventListener("click", () => {
+        if (!roundResult.hidden && roundResult.classList.contains("team-rejected-toast")) dismissRejectedTeamToast();
     });
 
     function connect() {
@@ -166,17 +232,26 @@
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
             } else if (event.type === "game_started") {
-                gameStarting = false;
+                // Keep the starting screen covering the room until the following
+                // role_assigned event is ready to replace it. WebSocket messages
+                // are separate tasks, so hiding it here can expose an intermediate
+                // game view for a frame.
+                gameStarting = true;
                 gameStartConfirmed = false;
                 pendingGameStartConfirmations = [];
-                gameStartPlayers = [];
-                startGameCountdown();
+                renderGameStarting();
                 role = "";
+                roleRevealed = false;
                 roleConfirmed = false;
                 pendingRoleConfirmations = event.data.players || [];
                 setGameState(event.data);
             } else if (event.type === "role_assigned") {
                 role = event.data.role;
+                roleRevealed = false;
+                gameStarting = false;
+                stopGameStartCountdown();
+                gameStartPlayers = [];
+                renderGameStarting();
                 renderRole();
                 renderPhase();
                 renderRoleConfirmation();
@@ -188,7 +263,11 @@
                 renderGameStarting();
             } else if (event.type === "game_start_confirmations_updated") {
                 pendingGameStartConfirmations = event.data.pendingPlayers || [];
+                gameStartConfirmed = !pendingGameStartConfirmations.some((player) => player.id === playerID);
+                if (event.data.countdown) startGameCountdown();
+                else if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
+                if (event.data.unreadiedPlayer) showPlayerUnreadied(event.data.unreadiedPlayer.id);
             } else if (event.type === "game_start_cancelled") {
                 gameStarting = false;
                 gameStartConfirmed = false;
@@ -229,6 +308,27 @@
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
     }
 
+    function openSidebar(event) {
+        sidebarReturnFocus = event?.currentTarget || sidebarToggle;
+        sidebar.classList.add("open");
+        sidebar.setAttribute("aria-hidden", "false");
+        sidebarToggle.setAttribute("aria-expanded", "true");
+        captainSidebarToggle.setAttribute("aria-expanded", "true");
+        sidebarBackdrop.hidden = false;
+        document.body.classList.add("sidebar-open");
+        sidebarClose.focus();
+    }
+
+    function closeSidebar(returnFocus = true) {
+        sidebar.classList.remove("open");
+        sidebar.setAttribute("aria-hidden", "true");
+        sidebarToggle.setAttribute("aria-expanded", "false");
+        captainSidebarToggle.setAttribute("aria-expanded", "false");
+        sidebarBackdrop.hidden = true;
+        document.body.classList.remove("sidebar-open");
+        if (returnFocus) sidebarReturnFocus.focus();
+    }
+
     function voteOnProposal(choice) {
         if (submittedProposalVote) return;
         submittedProposalVote = true;
@@ -248,7 +348,7 @@
         const previousProposalResult = gameState?.lastProposal;
         if (nextState.phase === "complete") {
             deferredQuestResult = null;
-            dismissProposalResult();
+            dismissProposalResult(false);
             if (gameState?.phase !== "complete") {
                 dismissQuestResult(true);
                 announceWinnerCountdown();
@@ -352,7 +452,7 @@
             : "Click anywhere to continue";
     }
 
-    function dismissProposalResult() {
+    function dismissProposalResult(showRejectedToast = true) {
         window.clearInterval(proposalResultCountdownTimer);
         window.clearInterval(proposalResultRevealTimer);
         proposalResultAnnouncement.hidden = true;
@@ -360,6 +460,8 @@
             const quest = deferredQuestResult;
             deferredQuestResult = null;
             announceQuestResult(quest);
+        } else if (showRejectedToast) {
+            showRejectedTeamToast();
         }
     }
 
@@ -456,6 +558,8 @@
     function renderGame() {
         gamePanel.hidden = false;
         gameError.textContent = "";
+        updateEndGameVisibility();
+        updatePresencePanelLocation();
         renderRoleConfirmation();
         if (!gameState || !gameState.phase) {
             showOnly(waitingView);
@@ -479,31 +583,43 @@
 
     function renderGameStarting() {
         const shouldShow = gameStarting || gameStartCountdownActive;
+        const countdown = byID("game-starting-countdown");
+        const readyMessage = byID("game-starting-ready-message");
         gameStartingView.hidden = !shouldShow;
+        gameStartingView.classList.toggle("player-ready", gameStarting && gameStartConfirmed);
+        readyMessage.textContent = gameStartCountdownActive ? "Everyone has readied up, the game will start shortly." : "Ready up to start";
         if (!shouldShow) return;
 
-        if (gameStartCountdownActive) {
-            byID("game-starting-title").textContent = String(gameStartCountdownSeconds);
-            byID("game-starting-players").hidden = true;
-            gameStartingReady.hidden = true;
-            byID("game-starting-status").textContent = "Roles are being dealt…";
-            return;
-        }
-
-        byID("game-starting-title").textContent = "Game starting";
-        byID("game-starting-players").hidden = false;
-        gameStartingReady.hidden = false;
         const pendingIDs = new Set(pendingGameStartConfirmations.map((player) => player.id));
         const list = byID("game-starting-players");
         list.replaceChildren();
         for (const player of gameStartPlayers) {
             const item = document.createElement("li");
+            item.dataset.playerId = player.id;
             const ready = !pendingIDs.has(player.id);
             item.classList.toggle("ready", ready);
             item.textContent = `${player.name}${player.id === playerID ? " (you)" : ""} · ${ready ? "Ready" : "Waiting"}`;
             list.append(item);
         }
-        gameStartingReady.disabled = gameStartConfirmed;
+
+        if (gameStartCountdownActive) {
+            byID("game-starting-title").textContent = "Game starting";
+            countdown.hidden = false;
+            countdown.textContent = String(Math.max(gameStartCountdownSeconds, 1));
+            byID("game-starting-players").hidden = false;
+            gameStartingReady.hidden = false;
+            gameStartingReady.textContent = "Unready";
+            byID("game-starting-status").textContent = gameStartCountdownSeconds > 0
+                ? `Starting in ${gameStartCountdownSeconds}…`
+                : "Dealing roles…";
+            return;
+        }
+
+        countdown.hidden = true;
+        byID("game-starting-title").textContent = "Game starting";
+        byID("game-starting-players").hidden = false;
+        gameStartingReady.hidden = false;
+        gameStartingReady.disabled = false;
         gameStartingReady.textContent = gameStartConfirmed ? "Ready!" : "Ready up";
         const remaining = pendingGameStartConfirmations.length;
         byID("game-starting-status").textContent = remaining
@@ -511,32 +627,64 @@
             : "Everyone is ready. Dealing roles…";
     }
 
+    function showUnreadyGlow() {
+        window.clearTimeout(unreadyGlowTimer);
+        gameStartingView.classList.remove("player-unready");
+        void gameStartingView.offsetWidth;
+        gameStartingView.classList.add("player-unready");
+        unreadyGlowTimer = window.setTimeout(() => {
+            gameStartingView.classList.remove("player-unready");
+        }, 700);
+    }
+
+    function showPlayerUnreadied(id) {
+        const tile = byID("game-starting-players").querySelector(`[data-player-id="${CSS.escape(id)}"]`);
+        if (!tile) return;
+        tile.classList.remove("just-unreadied");
+        void tile.offsetWidth;
+        tile.classList.add("just-unreadied");
+        window.setTimeout(() => tile.classList.remove("just-unreadied"), 1800);
+    }
+
     function startGameCountdown() {
         window.clearInterval(gameStartCountdownTimer);
         gameStartCountdownActive = true;
         gameStartCountdownSeconds = 3;
         renderGameStarting();
+        showCountdownPulse();
         gameStartCountdownTimer = window.setInterval(() => {
             gameStartCountdownSeconds -= 1;
             if (gameStartCountdownSeconds <= 0) {
                 window.clearInterval(gameStartCountdownTimer);
-                gameStartCountdownActive = false;
                 renderGameStarting();
-                renderRoleConfirmation();
                 return;
             }
             renderGameStarting();
+            showCountdownPulse();
         }, 1000);
+    }
+
+    function stopGameStartCountdown() {
+        window.clearInterval(gameStartCountdownTimer);
+        gameStartCountdownActive = false;
+        gameStartCountdownSeconds = 0;
+    }
+
+    function showCountdownPulse() {
+        window.clearTimeout(gameStartPulseTimer);
+        gameStartingView.classList.remove("countdown-pulse");
+        void gameStartingView.offsetWidth;
+        gameStartingView.classList.add("countdown-pulse");
+        gameStartPulseTimer = window.setTimeout(() => {
+            gameStartingView.classList.remove("countdown-pulse");
+        }, 550);
     }
 
     function renderRole() {
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
-        roleElement.textContent = role || (isPlayer ? "Assigning…" : "Spectator");
-        roleHelp.textContent = role === "traitor"
-            ? "Stay hidden. You may succeed or fail a quest when selected."
-            : role === "innocent"
-                ? "Help three quests succeed. You can only play success cards."
-                : isPlayer ? "Your role is being dealt." : "A game was already underway when you joined.";
+        const assignedRole = role || (isPlayer ? "Assigning…" : "Spectator");
+        roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
+        roleReveal.classList.toggle("revealed", roleRevealed);
     }
 
     function renderRoleConfirmation() {
@@ -581,8 +729,10 @@
     }
 
     function renderLastResult() {
-        const result = byID("round-result");
+        const result = roundResult;
         if (gameState.lastQuest) {
+            dismissRejectedTeamToast(true);
+            rejectedTeamToastKey = "";
             const quest = gameState.lastQuest;
             result.textContent = quest.automatic
                 ? `Round ${quest.round} automatically failed after five rejected teams.`
@@ -592,12 +742,59 @@
             result.className = `round-result ${quest.succeeded ? "succeeded" : "failed"}`;
             result.hidden = false;
         } else if (gameState.lastProposal && !gameState.lastProposal.approved) {
-            result.textContent = `Team rejected (${gameState.lastProposal.yes} yes, ${gameState.lastProposal.no} no). The captain has rotated.`;
-            result.className = "round-result failed";
-            result.hidden = false;
+            if (proposalResultAnnouncement.hidden && pendingProposalConfirmations.length === 0) showRejectedTeamToast();
+            else result.hidden = true;
         } else {
-            result.hidden = true;
+            dismissRejectedTeamToast();
         }
+    }
+
+    function showRejectedTeamToast() {
+        if (!gameState?.lastProposal || gameState.lastProposal.approved || gameState.lastQuest) return;
+        const toastKey = `${gameState.round}:${gameState.rejectedProposals}:${gameState.lastProposal.yes}:${gameState.lastProposal.no}`;
+        if (rejectedTeamToastKey === toastKey) return;
+        rejectedTeamToastKey = toastKey;
+        window.clearTimeout(rejectedTeamToastHideTimer);
+        rejectedTeamToastExitAnimation?.cancel();
+        rejectedTeamToastExitAnimation = null;
+        roundResult.textContent = `Team rejected (${gameState.lastProposal.yes} yes, ${gameState.lastProposal.no} no). The captain has rotated.`;
+        roundResult.className = "round-result failed team-rejected-toast";
+        roundResult.hidden = false;
+        window.clearTimeout(rejectedTeamToastTimer);
+        rejectedTeamToastTimer = window.setTimeout(dismissRejectedTeamToast, 5000);
+    }
+
+    function dismissRejectedTeamToast(immediately = false) {
+        window.clearTimeout(rejectedTeamToastTimer);
+        window.clearTimeout(rejectedTeamToastHideTimer);
+        if (!roundResult.classList.contains("team-rejected-toast")) return;
+        if (immediately) {
+            rejectedTeamToastExitAnimation?.cancel();
+            rejectedTeamToastExitAnimation = null;
+            roundResult.hidden = true;
+            return;
+        }
+        if (rejectedTeamToastExitAnimation) return;
+
+        const exitDistance = roundResult.offsetHeight + 32;
+        const animation = roundResult.animate([
+            { opacity: 1, transform: "translateY(0)" },
+            { opacity: 0, transform: `translateY(${exitDistance}px)` },
+        ], {
+            duration: 300,
+            easing: "ease-in",
+            fill: "forwards",
+        });
+        rejectedTeamToastExitAnimation = animation;
+
+        const finishDismissal = () => {
+            if (rejectedTeamToastExitAnimation !== animation) return;
+            rejectedTeamToastExitAnimation = null;
+            roundResult.hidden = true;
+            animation.cancel();
+        };
+        animation.finished.then(finishDismissal).catch(() => {});
+        rejectedTeamToastHideTimer = window.setTimeout(finishDismissal, 400);
     }
 
     function renderPhase() {
@@ -625,7 +822,7 @@
         );
         if (!isCaptain) return;
 
-        renderCaptainQuestCards();
+        renderQuestCards(byID("captain-quest-cards"));
         renderVoteFailureTrackerFor(byID("captain-vote-failure-tracker"));
         questTeamSelectionOrder = questTeamSelectionOrder.filter((id) => gameState.players.some((player) => player.id === id));
         const options = byID("quest-team-options");
@@ -644,26 +841,19 @@
             label.append(input, name);
             options.append(label);
         }
+        updateCaptainPlayerLayout();
     }
 
-    function renderCaptainQuestCards() {
-        const list = byID("captain-quest-cards");
-        const resultsByRound = new Map((gameState.questResults || []).map((result) => [result.round, result]));
-        list.replaceChildren();
-        for (let round = 1; round <= gameState.totalRounds; round++) {
-            const result = resultsByRound.get(round);
-            const status = result ? (result.succeeded ? "succeeded" : "failed") : "pending";
-            const item = document.createElement("li");
-            item.className = status;
-            const statusIcon = document.createElement("span");
-            statusIcon.textContent = `Quest ${round}`;
-            const teamSize = document.createElement("small");
-            const requiredPlayers = gameState.questSizes?.[round - 1] || 0;
-            teamSize.textContent = `${requiredPlayers} player${requiredPlayers === 1 ? "" : "s"}`;
-            item.append(statusIcon, teamSize);
-            item.setAttribute("aria-label", `Quest ${round}: ${requiredPlayers} players required; ${status === "pending" ? "not played" : status}`);
-            list.append(item);
-        }
+    function scheduleCaptainPlayerLayout() {
+        window.cancelAnimationFrame(captainLayoutFrame);
+        captainLayoutFrame = window.requestAnimationFrame(updateCaptainPlayerLayout);
+    }
+
+    function updateCaptainPlayerLayout() {
+        const panel = byID("quest-team-options");
+        if (panel.hidden || panel.offsetParent === null) return;
+        panel.classList.remove("double-stacked");
+        if (panel.scrollHeight > panel.clientHeight) panel.classList.add("double-stacked");
     }
 
     function updateTeamSelection(event) {
@@ -688,11 +878,13 @@
         error.textContent = `Select ${missing} more player${missing === 1 ? "" : "s"} before submitting. ${selectedCount} of ${gameState.questSize} selected.`;
         error.hidden = false;
         byID("captain-controls").classList.add("selection-error");
+        scheduleCaptainPlayerLayout();
     }
 
     function clearCaptainSelectionError() {
         byID("captain-selection-error").hidden = true;
         byID("captain-controls").classList.remove("selection-error");
+        scheduleCaptainPlayerLayout();
     }
 
     function renderProposal() {
@@ -833,8 +1025,17 @@
     function resetToWaiting(message) {
         window.clearInterval(gameStartCountdownTimer);
         gameStartCountdownActive = false;
+        gameStarting = false;
+        gameStartConfirmed = false;
+        pendingGameStartConfirmations = [];
+        gameStartPlayers = [];
+        renderGameStarting();
         gameState = null;
+        updateEndGameVisibility();
+        updatePresencePanelLocation();
+        if (endGameDialog.open) endGameDialog.close();
         role = "";
+        roleRevealed = false;
         roleConfirmed = false;
         pendingRoleConfirmations = [];
         dismissQuestResult(true);
@@ -848,6 +1049,17 @@
         waitingView.append(startForm);
         startForm.hidden = !isHost;
         gameError.textContent = message;
+    }
+
+    function updateEndGameVisibility() {
+        endGameButton.hidden = !(isHost && gameState?.phase && gameState.phase !== "complete");
+    }
+
+    function updatePresencePanelLocation() {
+        const gameIsActive = Boolean(gameState?.phase && gameState.phase !== "complete");
+        document.body.classList.toggle("gameplay-active", gameIsActive);
+        const destination = gameIsActive ? sidebar : presencePanelHome;
+        if (presencePanel.parentElement !== destination) destination.append(presencePanel);
     }
 
     function showOnly(view) {

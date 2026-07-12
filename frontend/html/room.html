@@ -8,6 +8,35 @@
     <script src="/assets/js/room.js" defer></script>
 </head>
 <body>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+    <aside id="room-sidebar" class="room-sidebar" aria-label="Room menu" aria-hidden="true">
+        <div class="sidebar-header">
+            <h2>Room menu</h2>
+            <button id="sidebar-close" class="sidebar-close" type="button" aria-label="Close room menu">×</button>
+        </div>
+        <nav aria-label="Room actions">
+            <button id="end-game" class="sidebar-action danger" type="button" hidden>Exit Game</button>
+            <button id="leave-room" class="sidebar-action secondary" type="button">Leave to Lobby Browser</button>
+        </nav>
+    </aside>
+    <dialog id="end-game-dialog" class="end-game-dialog" aria-labelledby="end-game-title" aria-describedby="end-game-description">
+        <p class="eyebrow">Host action</p>
+        <h2 id="end-game-title">Exit game?</h2>
+        <p id="end-game-description">This will end the current game for everyone and return the room to the waiting screen.</p>
+        <div class="dialog-actions">
+            <button id="cancel-end-game" type="button">Keep playing</button>
+            <button id="confirm-end-game" class="danger" type="button">Exit Game</button>
+        </div>
+    </dialog>
+    <dialog id="leave-room-dialog" class="end-game-dialog" aria-labelledby="leave-room-title" aria-describedby="leave-room-description">
+        <p class="eyebrow">Leave room</p>
+        <h2 id="leave-room-title">Leave this room?</h2>
+        <p id="leave-room-description">You will disconnect from this room and return to the lobby browser.</p>
+        <div class="dialog-actions">
+            <button id="cancel-leave-room" type="button">Stay here</button>
+            <button id="confirm-leave-room" class="danger" type="button">Leave to Lobby Browser</button>
+        </div>
+    </dialog>
     <section id="proposal-result-announcement" class="proposal-result-announcement" role="button" tabindex="0" aria-labelledby="proposal-result-title" aria-describedby="proposal-result-detail proposal-result-action" hidden>
         <div class="proposal-result-announcement-content">
             <p class="eyebrow">Team vote</p>
@@ -44,7 +73,8 @@
         <div class="game-starting-content">
             <p class="eyebrow">Get ready</p>
             <h2 id="game-starting-title">Game starting</h2>
-            <p>Everyone has readied up, the game will start shortly.</p>
+            <p id="game-starting-ready-message">Everyone has readied up, the game will start shortly.</p>
+            <p id="game-starting-countdown" class="game-starting-countdown" aria-live="polite" hidden></p>
             <ul id="game-starting-players" class="team-list"></ul>
             <button id="game-starting-ready" type="button">Ready up</button>
             <p id="game-starting-status" class="game-starting-status"></p>
@@ -78,7 +108,10 @@
                 </section>
                 <div id="main-game-view">
                 <section class="quest-board" aria-labelledby="quest-board-title">
-                    <h3 id="quest-board-title">Quest progress</h3>
+                    <div class="quest-board-header">
+                        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Open room menu" aria-controls="room-sidebar" aria-expanded="false"><span aria-hidden="true"></span></button>
+                        <h3 id="quest-board-title">Quest progress</h3>
+                    </div>
                     <ol id="quest-cards" class="quest-cards"></ol>
                 </section>
 
@@ -90,24 +123,27 @@
                     <ol id="vote-failure-tracker" class="vote-failure-tracker"></ol>
                 </section>
 
-                <details class="role-card">
-                    <summary>Your secret role</summary>
-                    <p id="role" class="role">Assigning…</p>
-                    <p id="role-help"></p>
-                </details>
+                <section class="role-card" aria-label="Secret role">
+                    <button id="role-reveal" class="role-reveal" type="button">
+                        <span id="role">Reveal Secret Role</span>
+                    </button>
+                </section>
 
                 <p id="round-result" class="round-result" role="status" hidden></p>
 
                 <section id="choosing-view" class="phase-view" hidden>
                     <div id="captain-controls" class="quest-team-selector" hidden>
-                        <ol id="captain-quest-cards" class="captain-quest-cards" aria-label="Quest progress"></ol>
-                        <h3>Choose <span id="required-team-size"></span> players for the quest</h3>
-                        <div class="captain-vote-failures">
-                            <span>Failed team votes</span>
-                            <ol id="captain-vote-failure-tracker" class="vote-failure-tracker"></ol>
+                        <div class="captain-controls-header">
+                            <button id="captain-sidebar-toggle" class="sidebar-toggle captain-sidebar-toggle" type="button" aria-label="Open room menu" aria-controls="room-sidebar" aria-expanded="false"><span aria-hidden="true"></span></button>
+                            <div class="captain-vote-failures">
+                                <span>Failed team votes</span>
+                                <ol id="captain-vote-failure-tracker" class="vote-failure-tracker"></ol>
+                            </div>
                         </div>
+                        <ol id="captain-quest-cards" class="quest-cards" aria-label="Quest progress"></ol>
+                        <h3>Choose <span id="required-team-size"></span> players for the quest</h3>
                         <form id="quest-team-form">
-                            <fieldset id="quest-team-options"></fieldset>
+                            <fieldset id="quest-team-options" class="quest-player-panel"></fieldset>
                             <p id="captain-selection-error" class="captain-selection-error" role="alert" hidden></p>
                             <button type="submit">Submit team</button>
                         </form>
@@ -161,6 +197,7 @@
             <p id="game-error" class="error" role="alert"></p>
         </section>
 
+        <div id="presence-panel-home"></div>
         <section id="presence-panel" class="panel" hidden>
             <div class="status-row">
                 <span id="connection-dot" class="status-dot"></span>

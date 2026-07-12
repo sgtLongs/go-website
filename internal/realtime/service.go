@@ -15,8 +15,8 @@ type Service struct {
 	manager *Manager
 }
 
-func NewService() *Service {
-	return &Service{manager: NewManager()}
+func NewService(onEmpty func(string)) *Service {
+	return &Service{manager: NewManager(onEmpty)}
 }
 
 func ValidRoomID(roomID string) bool {

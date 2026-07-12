@@ -1,6 +1,9 @@
 package lobby
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCreateJoinAndAuthorize(t *testing.T) {
 	s := NewService()
@@ -43,6 +46,23 @@ func TestListDoesNotExposePassword(t *testing.T) {
 	})
 	if len(items) != 1 || items[0].Name != "Visible name" || items[0].PlayerCount != 3 {
 		t.Fatalf("unexpected list: %#v", items)
+	}
+}
+
+func TestCloseRemovesLobbyAndAccessGrants(t *testing.T) {
+	s := NewService()
+	lobby, token, err := s.Create("Closing time", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s.Close(lobby.ID)
+
+	if s.Authorized(lobby.ID, token) {
+		t.Fatal("closed lobby should not accept its previous access grant")
+	}
+	if _, err := s.Join(lobby.ID, "secret"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Join error = %v, want ErrNotFound", err)
 	}
 }
 

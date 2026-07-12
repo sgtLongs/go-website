@@ -130,6 +130,20 @@ func (s *Service) IsHost(id, token string) bool {
 	return ok && grant.host && grant.lobbyID == id && s.now().Before(grant.expiresAt)
 }
 
+// Close removes a lobby after its last connected player leaves. Removing its
+// grants prevents stale browser tabs from reopening the closed lobby.
+func (s *Service) Close(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	delete(s.lobbies, id)
+	for token, grant := range s.grants {
+		if grant.lobbyID == id {
+			delete(s.grants, token)
+		}
+	}
+}
+
 func newToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
