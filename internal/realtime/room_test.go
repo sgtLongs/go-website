@@ -2,8 +2,122 @@ package realtime
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/sgtLongs/go-website/internal/persistence"
 )
+
+func TestPersistedRoomRestoresRoleAndConfirmation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rooms.db")
+	store, err := persistence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	room := newRoomWithStore("game-room", nil, store)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "Guest One", false),
+		testClient(room, "Guest Two", false),
+	}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	if err := room.startGame(clients[0]); err != nil {
+		t.Fatal(err)
+	}
+	var originalRole string
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+		roleEvent := receiveEvent(t, client)
+		if client == clients[0] {
+			originalRole = roleEvent.Data.(map[string]any)["role"].(string)
+		}
+	}
+	room.handleCommand(roomCommand{client: clients[0], kind: "confirm_role"})
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := persistence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	encoded, exists, err := reopened.Get(persistence.RoomsBucket, []byte("game-room"))
+	if err != nil || !exists {
+		t.Fatalf("load persisted room = %v, %v", exists, err)
+	}
+	restored, err := restoreRoom(encoded, nil, reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejoined := testClient(restored, "Host", true)
+	restored.sendSnapshot(rejoined)
+	event := receiveEvent(t, rejoined)
+	encodedSnapshot, err := json.Marshal(event.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot presenceSnapshot
+	if err := json.Unmarshal(encodedSnapshot, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.PlayerID != "Host" || snapshot.Role != originalRole || !snapshot.RoleConfirmed {
+		t.Fatalf("restored private snapshot = %#v; want player Host, role %q, confirmed", snapshot, originalRole)
+	}
+}
+
+func TestDisconnectKeepsActiveGameOpen(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "Guest One", false),
+		testClient(room, "Guest Two", false),
+	}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.count.Add(1)
+	}
+	if err := room.startGame(clients[0]); err != nil {
+		t.Fatal(err)
+	}
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+		_ = receiveEvent(t, client)
+	}
+	if !room.disconnect(clients[1], true) {
+		t.Fatal("connected player was not disconnected")
+	}
+	if !room.game.Active() || !room.game.HasPlayer(clients[1].participant.ID) {
+		t.Fatal("disconnect removed the player or cancelled the active game")
+	}
+	if room.count.Load() != 2 {
+		t.Fatalf("connected count = %d, want 2", room.count.Load())
+	}
+}
+
+func TestEmptyRoomClosesAfterGracePeriod(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	room := newRoom("game-room", func(*Room) { closed <- struct{}{} })
+	room.emptyGrace = 10 * time.Millisecond
+	go room.run()
+	client := testClient(room, "Host", true)
+	room.register <- client
+	_ = receiveEvent(t, client)
+	_ = receiveEvent(t, client)
+	room.unregister <- client
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("empty room did not close after its grace period")
+	}
+}
 
 func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	room := newRoom("game-room", nil)

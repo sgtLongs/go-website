@@ -11,25 +11,19 @@ import (
 
 // Handler translates Gin requests into calls to the realtime service.
 type Handler struct {
-	service   *Service
-	upgrader  websocket.Upgrader
-	authorize func(*gin.Context) bool
-	isHost    func(*gin.Context) bool
+	service  *Service
+	upgrader websocket.Upgrader
+	resolve  func(*gin.Context, string) (string, string, bool, bool)
 }
 
-func NewHandler(service *Service, authorize ...func(*gin.Context) bool) *Handler {
-	var authorizeRequest func(*gin.Context) bool
-	if len(authorize) > 0 {
-		authorizeRequest = authorize[0]
-	}
-	var hostRequest func(*gin.Context) bool
-	if len(authorize) > 1 {
-		hostRequest = authorize[1]
+func NewHandler(service *Service, resolve ...func(*gin.Context, string) (string, string, bool, bool)) *Handler {
+	var resolveParticipant func(*gin.Context, string) (string, string, bool, bool)
+	if len(resolve) > 0 {
+		resolveParticipant = resolve[0]
 	}
 	return &Handler{
-		service:   service,
-		authorize: authorizeRequest,
-		isHost:    hostRequest,
+		service: service,
+		resolve: resolveParticipant,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
@@ -49,9 +43,14 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name must be 1 to 40 characters"})
 		return
 	}
-	if h.authorize != nil && !h.authorize(c) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "join this lobby before connecting"})
-		return
+	participant := Participant{ID: name, Name: name}
+	if h.resolve != nil {
+		id, canonicalName, host, ok := h.resolve(c, name)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "join this lobby before connecting"})
+			return
+		}
+		participant = Participant{ID: id, Name: canonicalName, Host: host}
 	}
 
 	connection, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -61,8 +60,7 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 
 	// HandleConnection blocks until this browser disconnects. Gin gives each
 	// request its own goroutine, so other requests continue normally.
-	host := h.isHost != nil && h.isHost(c)
-	h.service.HandleConnection(roomID, name, host, connection)
+	h.service.HandleConnection(roomID, participant, connection)
 }
 
 func sameHostOrigin(r *http.Request) bool {

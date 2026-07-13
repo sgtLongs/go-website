@@ -5,6 +5,7 @@ package game
 import (
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"math/big"
 )
 
@@ -96,6 +97,29 @@ type Started struct {
 	Generation uint64
 	Roles      map[string]Role
 	State      Snapshot
+}
+
+// PersistedState contains every durable rule-engine field, including private
+// roles and choices. It is intended only for trusted server-side storage.
+type PersistedState struct {
+	Active        bool            `json:"active"`
+	Generation    uint64          `json:"generation"`
+	Players       []Player        `json:"players"`
+	Roles         map[string]Role `json:"roles"`
+	CaptainIndex  int             `json:"captainIndex"`
+	Phase         Phase           `json:"phase"`
+	Round         int             `json:"round"`
+	Quest         []Player        `json:"quest,omitempty"`
+	ProposalVotes map[string]bool `json:"proposalVotes,omitempty"`
+	RejectedTeams int             `json:"rejectedTeams"`
+	QuestCards    map[string]bool `json:"questCards,omitempty"`
+	Successful    int             `json:"successful"`
+	Failed        int             `json:"failed"`
+	LastProposal  *ProposalResult `json:"lastProposal,omitempty"`
+	LastQuest     *QuestResult    `json:"lastQuest,omitempty"`
+	QuestResults  []QuestResult   `json:"questResults,omitempty"`
+	Winner        Role            `json:"winner,omitempty"`
+	Traitors      []Player        `json:"traitors,omitempty"`
 }
 
 type Engine struct {
@@ -323,6 +347,58 @@ func (g *Engine) RoleFor(playerID string) (Role, bool) {
 	return role, assigned && (g.active || g.phase == GameComplete)
 }
 
+func (g *Engine) HasVoted(playerID string) bool {
+	_, voted := g.proposalVotes[playerID]
+	return voted
+}
+
+func (g *Engine) HasPlayedQuestCard(playerID string) bool {
+	_, played := g.questCards[playerID]
+	return played
+}
+
+func (g *Engine) Export() PersistedState {
+	return PersistedState{
+		Active: g.active, Generation: g.generation,
+		Players: append([]Player(nil), g.players...), Roles: copyRoles(g.roles), CaptainIndex: g.captainIndex,
+		Phase: g.phase, Round: g.round, Quest: append([]Player(nil), g.quest...),
+		ProposalVotes: copyChoices(g.proposalVotes), RejectedTeams: g.rejectedTeams,
+		QuestCards: copyChoices(g.questCards), Successful: g.successful, Failed: g.failed,
+		LastProposal: copyProposal(g.lastProposal), LastQuest: copyQuest(g.lastQuest),
+		QuestResults: append([]QuestResult(nil), g.questResults...), Winner: g.winner,
+		Traitors: append([]Player(nil), g.traitors...),
+	}
+}
+
+// Restore replaces the engine with a validated durable snapshot while
+// retaining its cryptographically secure random chooser for future games.
+func (g *Engine) Restore(state PersistedState) error {
+	playerByID, err := validatePersistedState(state)
+	if err != nil {
+		return err
+	}
+	g.active = state.Active
+	g.generation = state.Generation
+	g.players = append([]Player(nil), state.Players...)
+	g.playerByID = playerByID
+	g.roles = copyRoles(state.Roles)
+	g.captainIndex = state.CaptainIndex
+	g.phase = state.Phase
+	g.round = state.Round
+	g.quest = append([]Player(nil), state.Quest...)
+	g.proposalVotes = copyChoices(state.ProposalVotes)
+	g.rejectedTeams = state.RejectedTeams
+	g.questCards = copyChoices(state.QuestCards)
+	g.successful = state.Successful
+	g.failed = state.Failed
+	g.lastProposal = copyProposal(state.LastProposal)
+	g.lastQuest = copyQuest(state.LastQuest)
+	g.questResults = append([]QuestResult(nil), state.QuestResults...)
+	g.winner = state.Winner
+	g.traitors = append([]Player(nil), state.Traitors...)
+	return nil
+}
+
 func (g *Engine) Snapshot() Snapshot {
 	questSizes := make([]int, TotalRounds)
 	for round := 1; round <= TotalRounds; round++ {
@@ -429,6 +505,100 @@ func copyRoles(source map[string]Role) map[string]Role {
 		copy[id] = role
 	}
 	return copy
+}
+
+func copyChoices(source map[string]bool) map[string]bool {
+	if source == nil {
+		return nil
+	}
+	copy := make(map[string]bool, len(source))
+	for id, choice := range source {
+		copy[id] = choice
+	}
+	return copy
+}
+
+func validatePersistedState(state PersistedState) (map[string]Player, error) {
+	players := make(map[string]Player, len(state.Players))
+	for _, player := range state.Players {
+		if player.ID == "" || player.Name == "" {
+			return nil, errors.New("persisted game contains an incomplete player")
+		}
+		if _, duplicate := players[player.ID]; duplicate {
+			return nil, fmt.Errorf("persisted game contains duplicate player %q", player.ID)
+		}
+		players[player.ID] = player
+	}
+	if len(players) == 0 {
+		if state.Active || state.Phase != "" || len(state.Roles) != 0 {
+			return nil, errors.New("empty persisted game contains active state")
+		}
+		return players, nil
+	}
+	if state.CaptainIndex < 0 || state.CaptainIndex >= len(state.Players) {
+		return nil, errors.New("persisted game has an invalid captain")
+	}
+	if state.Round < 1 || state.Round > TotalRounds {
+		return nil, errors.New("persisted game has an invalid round")
+	}
+	if state.RejectedTeams < 0 || state.RejectedTeams >= ProposalRejectionLimit {
+		return nil, errors.New("persisted game has an invalid rejection count")
+	}
+	if state.Successful < 0 || state.Successful > WinningQuests || state.Failed < 0 || state.Failed > WinningQuests {
+		return nil, errors.New("persisted game has an invalid score")
+	}
+	traitorCount := 0
+	for id, role := range state.Roles {
+		if _, exists := players[id]; !exists || (role != Innocent && role != Traitor) {
+			return nil, errors.New("persisted game has an invalid role assignment")
+		}
+		if role == Traitor {
+			traitorCount++
+		}
+	}
+	if len(state.Roles) != len(players) {
+		return nil, errors.New("persisted game is missing role assignments")
+	}
+	if traitorCount != 1 || len(state.Traitors) != 1 {
+		return nil, errors.New("persisted game has an invalid traitor count")
+	}
+	if state.Active {
+		if state.Phase != ChoosingTeam && state.Phase != VotingOnTeam && state.Phase != PlayingQuest {
+			return nil, errors.New("active persisted game has an invalid phase")
+		}
+	} else if state.Phase != "" && state.Phase != GameComplete {
+		return nil, errors.New("inactive persisted game has an invalid phase")
+	}
+	quest := make(map[string]struct{}, len(state.Quest))
+	for _, player := range state.Quest {
+		canonical, exists := players[player.ID]
+		if !exists || canonical.Name != player.Name {
+			return nil, errors.New("persisted quest contains an unknown player")
+		}
+		if _, duplicate := quest[player.ID]; duplicate {
+			return nil, errors.New("persisted quest contains a duplicate player")
+		}
+		quest[player.ID] = struct{}{}
+	}
+	for id := range state.ProposalVotes {
+		if _, exists := players[id]; !exists {
+			return nil, errors.New("persisted proposal contains an unknown voter")
+		}
+	}
+	for id := range state.QuestCards {
+		if _, exists := quest[id]; !exists {
+			return nil, errors.New("persisted quest contains an unknown card")
+		}
+	}
+	for _, traitor := range state.Traitors {
+		if state.Roles[traitor.ID] != Traitor || players[traitor.ID].Name != traitor.Name {
+			return nil, errors.New("persisted game contains an invalid traitor")
+		}
+	}
+	if state.Phase == GameComplete && state.Winner != Innocent && state.Winner != Traitor {
+		return nil, errors.New("completed persisted game has no winner")
+	}
+	return players, nil
 }
 
 func copyProposal(result *ProposalResult) *ProposalResult {

@@ -23,6 +23,11 @@ type presenceSnapshot struct {
 	PendingGameStartConfirmations []game.Player  `json:"pendingGameStartConfirmations,omitempty"`
 	GameStartPlayers              []game.Player  `json:"gameStartPlayers,omitempty"`
 	GameStarting                  bool           `json:"gameStarting,omitempty"`
+	GameStartConfirmed            bool           `json:"gameStartConfirmed,omitempty"`
+	RoleConfirmed                 bool           `json:"roleConfirmed,omitempty"`
+	ProposalVoteSubmitted         bool           `json:"proposalVoteSubmitted,omitempty"`
+	QuestCardSubmitted            bool           `json:"questCardSubmitted,omitempty"`
+	ProposalResultConfirmed       bool           `json:"proposalResultConfirmed,omitempty"`
 	Host                          bool           `json:"host"`
 	PlayerID                      string         `json:"playerId"`
 }

@@ -682,6 +682,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 #ended-view #final-score, #ended-view #next-game-message { margin: 0; }
 .error { min-height: 1.25em; color: #ffabab; }
 .host-badge { margin-left: .5rem; color: #75dfa9; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
+.participant-offline { color: #9ca7a1; font-style: italic; }
 
 @media (max-width: 480px) {
     /* Keep the vote-result action visible on short phone screens. */

@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const accessCookie = "lobby_access"
+const accessCookiePrefix = "lobby_access_"
 
 type Handler struct {
 	service     *Service
@@ -42,7 +42,7 @@ func (h *Handler) Create(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	h.setAccessCookie(c, token)
+	h.setAccessCookie(c, l.ID, token)
 	c.JSON(http.StatusCreated, gin.H{"id": l.ID, "name": l.Name})
 }
 
@@ -61,18 +61,26 @@ func (h *Handler) Join(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	h.setAccessCookie(c, token)
+	h.setAccessCookie(c, c.Param("lobbyID"), token)
 	c.Status(http.StatusNoContent)
 }
 
 func (h *Handler) AuthorizedRequest(c *gin.Context) bool {
-	token, err := c.Cookie(accessCookie)
+	token, err := c.Cookie(accessCookieName(c.Param("roomID")))
 	return err == nil && h.service.Authorized(c.Param("roomID"), token)
 }
 
 func (h *Handler) HostRequest(c *gin.Context) bool {
-	token, err := c.Cookie(accessCookie)
+	token, err := c.Cookie(accessCookieName(c.Param("roomID")))
 	return err == nil && h.service.IsHost(c.Param("roomID"), token)
+}
+
+func (h *Handler) ResolveRoomParticipant(c *gin.Context, requestedName string) (string, string, bool, bool) {
+	token, err := c.Cookie(accessCookieName(c.Param("roomID")))
+	if err != nil {
+		return "", "", false, false
+	}
+	return h.service.ResolveParticipant(c.Param("roomID"), token, requestedName)
 }
 
 func (h *Handler) RequireRoomAccess(c *gin.Context) {
@@ -84,8 +92,12 @@ func (h *Handler) RequireRoomAccess(c *gin.Context) {
 	c.Next()
 }
 
-func (h *Handler) setAccessCookie(c *gin.Context, token string) {
+func (h *Handler) setAccessCookie(c *gin.Context, roomID, token string) {
 	secure := c.Request.TLS != nil
 	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(accessCookie, token, int(accessLifetime.Seconds()), "/", "", secure, true)
+	c.SetCookie(accessCookieName(roomID), token, int(accessLifetime.Seconds()), "/", "", secure, true)
+}
+
+func accessCookieName(roomID string) string {
+	return accessCookiePrefix + roomID
 }

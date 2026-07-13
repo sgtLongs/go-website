@@ -10,11 +10,21 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/sgtLongs/go-website/frontend"
 	"github.com/sgtLongs/go-website/internal/lobby"
+	"github.com/sgtLongs/go-website/internal/persistence"
 	"github.com/sgtLongs/go-website/internal/realtime"
 )
 
 func main() {
-	var router *gin.Engine = newRouter()
+	store, err := persistence.Open(envOrDefault("DATA_PATH", "data/game.db"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := store.Close(); err != nil {
+			log.Printf("close persistence database: %v", err)
+		}
+	}()
+	var router *gin.Engine = newRouter(store)
 	address := envOrDefault("ADDRESS", ":8080")
 
 	server := &http.Server{
@@ -29,17 +39,31 @@ func main() {
 	}
 }
 
-func newRouter() *gin.Engine {
+func newRouter(stores ...*persistence.Store) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	if err := router.SetTrustedProxies(nil); err != nil {
 		panic(err)
 	}
 
-	lobbyService := lobby.NewService()
-	presenceService := realtime.NewService(lobbyService.Close)
+	var lobbyService *lobby.Service
+	var presenceService *realtime.Service
+	if len(stores) == 0 {
+		lobbyService = lobby.NewService()
+		presenceService = realtime.NewService(lobbyService.Close)
+	} else {
+		var err error
+		lobbyService, err = lobby.NewPersistentService(stores[0])
+		if err != nil {
+			panic(err)
+		}
+		presenceService, err = realtime.NewPersistentService(stores[0], lobbyService.Close)
+		if err != nil {
+			panic(err)
+		}
+	}
 	lobbyHandler := lobby.NewHandler(lobbyService, presenceService.ParticipantCount)
-	realtimeHandler := realtime.NewHandler(presenceService, lobbyHandler.AuthorizedRequest, lobbyHandler.HostRequest)
+	realtimeHandler := realtime.NewHandler(presenceService, lobbyHandler.ResolveRoomParticipant)
 	assets, err := fs.Sub(frontend.Files, "assets")
 	if err != nil {
 		panic(err)

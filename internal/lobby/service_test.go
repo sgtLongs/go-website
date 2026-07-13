@@ -2,8 +2,51 @@ package lobby
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
+
+	"github.com/sgtLongs/go-website/internal/persistence"
 )
+
+func TestPersistentGrantRestoresStableIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lobbies.db")
+	store, err := persistence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewPersistentService(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lobby, token, err := service.Create("Persistent room", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	playerID, name, host, ok := service.ResolveParticipant(lobby.ID, token, "Original name")
+	if !ok || playerID == "" || name != "Original name" || !host {
+		t.Fatalf("initial identity = %q, %q, %v, %v", playerID, name, host, ok)
+	}
+	if _, exists, err := store.Get(persistence.GrantsBucket, []byte(token)); err != nil || exists {
+		t.Fatalf("raw bearer token persisted = %v, error = %v", exists, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := persistence.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	restored, err := NewPersistentService(reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotID, gotName, gotHost, gotOK := restored.ResolveParticipant(lobby.ID, token, "Tampered name")
+	if !gotOK || gotID != playerID || gotName != name || gotHost != host {
+		t.Fatalf("restored identity = %q, %q, %v, %v; want %q, %q, %v, true", gotID, gotName, gotHost, gotOK, playerID, name, host)
+	}
+}
 
 func TestCreateJoinAndAuthorize(t *testing.T) {
 	s := NewService()

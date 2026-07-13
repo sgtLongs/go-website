@@ -52,6 +52,8 @@
     const confirmLeaveRoom = byID("confirm-leave-room");
 
     const participants = new Map();
+    const autoJoinKey = `room-auto-join:${roomID}`;
+    const roomDisplayNameKey = `room-display-name:${roomID}`;
     let socket;
     let reconnectTimer;
     let reconnectAttempts = 0;
@@ -92,7 +94,10 @@
     let rejectedTeamToastHideTimer;
     let rejectedTeamToastExitAnimation;
 
-    displayName.value = window.localStorage.getItem("presence-display-name") || "";
+    const storedDisplayName = window.localStorage.getItem(roomDisplayNameKey)
+        || window.localStorage.getItem("presence-display-name")
+        || "";
+    displayName.value = storedDisplayName;
 
     sidebarToggle.addEventListener("click", openSidebar);
     captainSidebarToggle.addEventListener("click", openSidebar);
@@ -125,6 +130,7 @@
     cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
     confirmLeaveRoom.addEventListener("click", () => {
         intentionallyClosed = true;
+        window.localStorage.removeItem(autoJoinKey);
         socket?.close();
         window.location.assign("/");
     });
@@ -137,6 +143,8 @@
         chosenName = displayName.value.trim();
         if (!chosenName) return;
         window.localStorage.setItem("presence-display-name", chosenName);
+        window.localStorage.setItem(roomDisplayNameKey, chosenName);
+        window.localStorage.setItem(autoJoinKey, "true");
         joinPanel.hidden = true;
         presencePanel.hidden = false;
         connect();
@@ -215,18 +223,31 @@
                 for (const person of event.data.participants) participants.set(person.id, person);
                 isHost = event.data.host;
                 playerID = event.data.playerId;
+                const currentParticipant = participants.get(playerID);
+                if (currentParticipant) {
+                    chosenName = currentParticipant.name;
+                    window.localStorage.setItem(roomDisplayNameKey, chosenName);
+                }
                 role = event.data.role || "";
                 gameState = event.data.game || null;
-                roleConfirmed = false;
+                roleConfirmed = Boolean(event.data.roleConfirmed);
                 pendingRoleConfirmations = event.data.pendingRoleConfirmations || [];
                 pendingProposalConfirmations = event.data.pendingProposalConfirmations || [];
+                proposalResultConfirmed = Boolean(event.data.proposalResultConfirmed);
+                submittedProposalVote = Boolean(event.data.proposalVoteSubmitted);
+                submittedQuestCard = Boolean(event.data.questCardSubmitted);
                 gameStarting = Boolean(event.data.gameStarting);
                 pendingGameStartConfirmations = event.data.pendingGameStartConfirmations || [];
                 gameStartPlayers = event.data.gameStartPlayers || [];
-                gameStartConfirmed = gameStarting && !pendingGameStartConfirmations.some((player) => player.id === playerID);
+                gameStartConfirmed = Boolean(event.data.gameStartConfirmed);
+                phaseKey = gameState
+                    ? `${gameState.round}:${gameState.phase}:${gameState.captain?.id || ""}`
+                    : "";
                 renderGame();
                 renderGameStarting();
-                if (pendingProposalConfirmations.length && gameState?.lastProposal) announceProposalResult(gameState.lastProposal);
+                if (pendingProposalConfirmations.length && gameState?.lastProposal) {
+                    announceProposalResult(gameState.lastProposal, gameState, proposalResultConfirmed);
+                }
             } else if (event.type === "user_joined") {
                 participants.set(event.data.id, event.data);
             } else if (event.type === "user_left") {
@@ -375,10 +396,10 @@
         renderGame();
     }
 
-    function announceProposalResult(result, state = gameState) {
+    function announceProposalResult(result, state = gameState, alreadyConfirmed = false) {
         window.clearTimeout(proposalResultRevealTimer);
         window.clearInterval(proposalResultCountdownTimer);
-        proposalResultConfirmed = false;
+        proposalResultConfirmed = alreadyConfirmed;
         proposalResultAnnouncement.className = "proposal-result-announcement counting-down";
         proposalResultAnnouncement.setAttribute("role", "status");
         proposalResultAnnouncement.removeAttribute("tabindex");
@@ -1093,10 +1114,24 @@
             }
             participantList.append(item);
         }
+        for (const player of gameState?.players || []) {
+            if (participants.has(player.id)) continue;
+            const item = document.createElement("li");
+            item.className = "participant-offline";
+            item.textContent = `${player.name} · disconnected`;
+            participantList.append(item);
+        }
         participantCount.textContent = String(participants.size);
         gamePanel.hidden = false;
         if (!gameState) startForm.hidden = !isHost;
         waitingMessage.textContent = isHost ? "Start when at least three players are ready." : "Waiting for the host to start a game.";
         nextGameMessage.textContent = isHost ? "Start a new game when everyone is ready." : "Waiting for the host to start a new game.";
+    }
+
+    if (storedDisplayName && window.localStorage.getItem(autoJoinKey) === "true") {
+        chosenName = storedDisplayName;
+        joinPanel.hidden = true;
+        presencePanel.hidden = false;
+        connect();
     }
 })();

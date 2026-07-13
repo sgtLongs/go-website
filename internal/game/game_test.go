@@ -2,8 +2,56 @@ package game
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 )
+
+func TestPersistedStateRestoresPrivateProgress(t *testing.T) {
+	original := newWithChooser(func(int) (int, error) { return 0, nil })
+	started, err := original.Start(testPlayers())
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := make([]string, started.State.QuestSize)
+	for i := range team {
+		team[i] = started.State.Players[i].ID
+	}
+	if err := original.ProposeQuest(started.State.Captain.ID, team); err != nil {
+		t.Fatal(err)
+	}
+	voter := started.State.Players[0].ID
+	if _, err := original.VoteOnProposal(voter, false); err != nil {
+		t.Fatal(err)
+	}
+
+	restored := New()
+	if err := restored.Restore(original.Export()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Snapshot(), original.Snapshot()) {
+		t.Fatalf("restored public snapshot = %#v, want %#v", restored.Snapshot(), original.Snapshot())
+	}
+	if !restored.HasVoted(voter) {
+		t.Fatal("restored engine lost the player's submitted vote")
+	}
+	for playerID, want := range started.Roles {
+		if got, ok := restored.RoleFor(playerID); !ok || got != want {
+			t.Fatalf("restored role for %q = %q, %v; want %q, true", playerID, got, ok, want)
+		}
+	}
+}
+
+func TestRestoreRejectsTamperedRole(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	if _, err := engine.Start(testPlayers()); err != nil {
+		t.Fatal(err)
+	}
+	state := engine.Export()
+	state.Roles[state.Players[0].ID] = "administrator"
+	if err := New().Restore(state); err == nil {
+		t.Fatal("Restore accepted an invalid role")
+	}
+}
 
 func TestStartAssignsTraitorAndRandomCaptain(t *testing.T) {
 	choices := []int{1, 2}
