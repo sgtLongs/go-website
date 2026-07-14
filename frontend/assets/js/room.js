@@ -1,4 +1,6 @@
 (() => {
+    const appBaseURL = new URL(document.baseURI);
+    const storagePrefix = appBaseURL.pathname === "/" ? "" : `app:${appBaseURL.pathname}:`;
     const roomID = decodeURIComponent(window.location.pathname.split("/").pop());
     const byID = (id) => document.querySelector(`#${id}`);
     const joinPanel = byID("join-panel");
@@ -52,8 +54,9 @@
     const confirmLeaveRoom = byID("confirm-leave-room");
 
     const participants = new Map();
-    const autoJoinKey = `room-auto-join:${roomID}`;
-    const roomDisplayNameKey = `room-display-name:${roomID}`;
+    const autoJoinKey = `${storagePrefix}room-auto-join:${roomID}`;
+    const roomDisplayNameKey = `${storagePrefix}room-display-name:${roomID}`;
+    const presenceDisplayNameKey = `${storagePrefix}presence-display-name`;
     let socket;
     let reconnectTimer;
     let reconnectAttempts = 0;
@@ -95,7 +98,7 @@
     let rejectedTeamToastExitAnimation;
 
     const storedDisplayName = window.localStorage.getItem(roomDisplayNameKey)
-        || window.localStorage.getItem("presence-display-name")
+        || window.localStorage.getItem(presenceDisplayNameKey)
         || "";
     displayName.value = storedDisplayName;
 
@@ -132,7 +135,7 @@
         intentionallyClosed = true;
         window.localStorage.removeItem(autoJoinKey);
         socket?.close();
-        window.location.assign("/");
+        window.location.assign(appBaseURL.href);
     });
     leaveRoomDialog.addEventListener("click", (event) => {
         if (event.target === leaveRoomDialog) leaveRoomDialog.close();
@@ -142,7 +145,7 @@
         event.preventDefault();
         chosenName = displayName.value.trim();
         if (!chosenName) return;
-        window.localStorage.setItem("presence-display-name", chosenName);
+        window.localStorage.setItem(presenceDisplayNameKey, chosenName);
         window.localStorage.setItem(roomDisplayNameKey, chosenName);
         window.localStorage.setItem(autoJoinKey, "true");
         joinPanel.hidden = true;
@@ -207,8 +210,9 @@
 
     function connect() {
         setStatus("Connecting…", false);
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const url = `${protocol}//${window.location.host}/ws/rooms/${encodeURIComponent(roomID)}?name=${encodeURIComponent(chosenName)}`;
+        const url = new URL(`ws/rooms/${encodeURIComponent(roomID)}`, appBaseURL);
+        url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("name", chosenName);
         socket = new WebSocket(url);
 
         socket.addEventListener("open", () => {

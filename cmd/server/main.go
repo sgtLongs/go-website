@@ -1,10 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
+	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
 	"os"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +29,11 @@ func main() {
 			log.Printf("close persistence database: %v", err)
 		}
 	}()
-	var router *gin.Engine = newRouter(store)
+	basePath, err := normalizeBasePath(os.Getenv("BASE_PATH"))
+	if err != nil {
+		log.Fatalf("invalid BASE_PATH: %v", err)
+	}
+	var router *gin.Engine = newRouterWithBasePath(basePath, store)
 	address := envOrDefault("ADDRESS", ":8080")
 
 	server := &http.Server{
@@ -40,6 +49,16 @@ func main() {
 }
 
 func newRouter(stores ...*persistence.Store) *gin.Engine {
+	return newRouterWithBasePath("", stores...)
+}
+
+func newRouterWithBasePath(basePath string, stores ...*persistence.Store) *gin.Engine {
+	var err error
+	basePath, err = normalizeBasePath(basePath)
+	if err != nil {
+		panic(err)
+	}
+
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
 	if err := router.SetTrustedProxies(nil); err != nil {
@@ -62,39 +81,85 @@ func newRouter(stores ...*persistence.Store) *gin.Engine {
 			panic(err)
 		}
 	}
-	lobbyHandler := lobby.NewHandler(lobbyService, presenceService.ParticipantCount)
+	lobbyHandler := lobby.NewHandlerWithBasePath(lobbyService, presenceService.ParticipantCount, basePath)
 	realtimeHandler := realtime.NewHandler(presenceService, lobbyHandler.ResolveRoomParticipant)
 	assets, err := fs.Sub(frontend.Files, "assets")
 	if err != nil {
 		panic(err)
 	}
-
-	router.GET("/", func(c *gin.Context) {
-		contents, err := fs.ReadFile(frontend.Files, "html/index.html")
-		if err != nil {
-			c.String(http.StatusInternalServerError, "could not load index page")
+	pages, err := template.ParseFS(frontend.Files, "html/*.html")
+	if err != nil {
+		panic(err)
+	}
+	routes := router.Group(basePath)
+	baseHref := basePath + "/"
+	renderPage := func(c *gin.Context, name string) {
+		var contents bytes.Buffer
+		if err := pages.ExecuteTemplate(&contents, name, struct{ BaseHref string }{BaseHref: baseHref}); err != nil {
+			c.String(http.StatusInternalServerError, "could not load page")
 			return
 		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", contents.Bytes())
+	}
 
-		c.Data(http.StatusOK, "text/html; charset=utf-8", contents)
+	if basePath != "" {
+		router.GET(basePath, func(c *gin.Context) {
+			c.Redirect(http.StatusPermanentRedirect, baseHref)
+		})
+	}
+	routes.GET("/", func(c *gin.Context) {
+		renderPage(c, "index.html")
 	})
-	router.StaticFS("/assets", http.FS(assets))
-	router.GET("/room/:roomID", lobbyHandler.RequireRoomAccess, func(c *gin.Context) {
+	routes.StaticFS("/assets", http.FS(assets))
+	routes.GET("/room/:roomID", lobbyHandler.RequireRoomAccess, func(c *gin.Context) {
 		if !realtime.ValidRoomID(c.Param("roomID")) {
 			c.String(http.StatusBadRequest, "invalid room ID")
 			return
 		}
-		c.FileFromFS("html/room.html", http.FS(frontend.Files))
+		renderPage(c, "room.html")
 	})
-	router.GET("/api/lobbies", lobbyHandler.List)
-	router.POST("/api/lobbies", lobbyHandler.Create)
-	router.POST("/api/lobbies/:lobbyID/join", lobbyHandler.Join)
-	router.GET("/ws/rooms/:roomID", realtimeHandler.ServeWebSocket)
-	router.GET("/health", func(c *gin.Context) {
+	routes.GET("/api/lobbies", lobbyHandler.List)
+	routes.POST("/api/lobbies", lobbyHandler.Create)
+	routes.POST("/api/lobbies/:lobbyID/join", lobbyHandler.Join)
+	routes.GET("/ws/rooms/:roomID", realtimeHandler.ServeWebSocket)
+	routes.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
 	return router
+}
+
+func normalizeBasePath(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/" {
+		return "", nil
+	}
+	if !strings.HasPrefix(value, "/") {
+		return "", fmt.Errorf("must start with /")
+	}
+
+	value = strings.TrimRight(value, "/")
+	if cleaned := path.Clean(value); cleaned != value {
+		return "", fmt.Errorf("must not contain empty, . or .. path segments")
+	}
+	for _, segment := range strings.Split(strings.TrimPrefix(value, "/"), "/") {
+		if segment == "" {
+			return "", fmt.Errorf("must not contain empty path segments")
+		}
+		for _, character := range segment {
+			if !validBasePathCharacter(character) {
+				return "", fmt.Errorf("contains unsupported character %q", character)
+			}
+		}
+	}
+	return value, nil
+}
+
+func validBasePathCharacter(character rune) bool {
+	return character >= 'a' && character <= 'z' ||
+		character >= 'A' && character <= 'Z' ||
+		character >= '0' && character <= '9' ||
+		strings.ContainsRune("-._~", character)
 }
 
 func envOrDefault(key, fallback string) string {
