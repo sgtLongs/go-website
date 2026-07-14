@@ -130,7 +130,8 @@ select the server's Linux architecture. Run the download and configuration
 commands GitHub displays, appending the custom label:
 
 ```bash
-./config.sh --url <repository-url> --token <one-time-token> --labels go-website
+./config.sh --url <repository-url> --token <one-time-token> \
+  --no-default-labels --labels go-website --name go-website-prod-01
 ```
 
 Install and start it as the Docker-enabled runner account:
@@ -141,8 +142,8 @@ sudo ./svc.sh start
 sudo ./svc.sh status
 ```
 
-GitHub should show it online with `self-hosted`, `linux`, `x64`, and
-`go-website`. The registration token is one-time setup data, not a repository
+GitHub should show it online with only the dedicated `go-website` label. The
+registration token is one-time setup data, not a repository
 secret.
 
 ### 3. Configure GitHub

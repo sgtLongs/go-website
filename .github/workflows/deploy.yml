@@ -110,7 +110,9 @@ jobs:
   deploy:
     name: Deploy ${{ needs.build.outputs.environment }}
     needs: build
-    runs-on: [self-hosted, linux, x64, go-website]
+    # Match only this repository's dedicated runner. It is registered without
+    # GitHub's generic self-hosted labels so unrelated jobs cannot select it.
+    runs-on: go-website
     environment:
       name: ${{ needs.build.outputs.environment }}
     permissions:
