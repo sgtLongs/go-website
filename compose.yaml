@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+    image: go-website:local
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      ADDRESS: ":8080"
+      DATA_PATH: "/app/data/game.db"
+      GIN_MODE: "release"
+    volumes:
+      - game-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  game-data:
