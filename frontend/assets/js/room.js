@@ -1086,16 +1086,20 @@
         mainGameView.hidden = waiting;
         const list = byID("role-confirmation-players");
         list.replaceChildren();
-        for (const player of pendingRoleConfirmations) {
+        const pendingIDs = new Set(pendingRoleConfirmations.map((player) => player.id));
+        for (const player of gameState?.players || []) {
+            const isWaiting = pendingIDs.has(player.id);
             const item = document.createElement("li");
-            item.className = "quest-player-tile waiting";
+            item.className = `quest-player-tile ${isWaiting ? "waiting" : "confirmed"}`;
             const name = document.createElement("strong");
             name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
             const state = document.createElement("span");
-            state.textContent = "Reading role…";
+            state.textContent = isWaiting ? "Reading role…" : "Role confirmed";
             item.append(name, state);
             list.append(item);
         }
+        list.classList.remove("double-stacked");
+        if (list.scrollHeight > list.clientHeight) list.classList.add("double-stacked");
     }
 
     function renderLastResult() {
@@ -1306,7 +1310,17 @@
         list.replaceChildren();
         for (const player of team) {
             const item = document.createElement("li");
-            item.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            const name = document.createElement("span");
+            name.className = "player-tile-name";
+            name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            item.append(name);
+            if (role === "merlin" && knownRoles[player.id] === "traitor") {
+                const marker = document.createElement("span");
+                marker.className = "player-tile-role";
+                marker.textContent = "Minion";
+                item.classList.add("known-minion");
+                item.append(marker);
+            }
             list.append(item);
         }
     }

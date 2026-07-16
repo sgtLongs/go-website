@@ -240,7 +240,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
 .role-confirmation.assassin .eyebrow,
 .role-confirmation.assassin .role-confirmation-title,
 .role-confirmation.assassin .role-confirmation-help,
-.role-confirmation.assassin .role-confirmation-action { color: #ed0000; }
+.role-confirmation.assassin .role-confirmation-action { color: #d52e2e; }
 .role-confirmation-title {
     margin: 0;
     color: #9af0c5;
@@ -388,7 +388,7 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     border: 1px solid #6c2b2b;
     border-radius: .65rem;
     background: radial-gradient(circle at top, #2a2a2a, #140909 65%);
-    color: #8f1f1f;
+    color: #d52e2e;
     box-shadow: .4rem 0 1rem #0007;
     cursor: grab;
     transform: translateX(var(--assassin-slider-x, 0));
@@ -729,27 +729,53 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     z-index: 10;
     inset: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: clamp(1rem, 4vh, 2.5rem);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: clamp(.75rem, 2vh, 1.25rem);
     min-height: 100vh;
     min-height: 100dvh;
     margin: 0;
-    padding: clamp(1rem, 4vw, 3rem);
+    padding: clamp(.75rem, 2vw, 1.5rem);
     overflow-y: auto;
     border: 0;
     background: radial-gradient(circle at top, #23483b, #101513 60%);
 }
-.proposal-team { text-align: center; }
-.proposal-team .eyebrow { margin: 0 0 .5rem; }
+.proposal-team {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    text-align: center;
+}
 .proposal-view h3 { margin: 0 0 1rem; font-size: clamp(1.5rem, 5vw, 3rem); }
-.proposed-team { justify-content: center; margin: 0; }
+.proposed-team {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: clamp(.75rem, 2vw, 1.5rem);
+    min-height: 0;
+    margin: 0;
+}
 .proposed-team li {
-    padding: clamp(.7rem, 2vw, 1rem) clamp(1rem, 3vw, 1.5rem);
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    padding: clamp(1rem, 3vw, 2rem);
     border-color: #75dfa9;
+    border-radius: .7rem;
     background: #183829;
     color: #d8ffeb;
-    font-size: clamp(1rem, 3vw, 1.35rem);
+    font-size: clamp(1.5rem, 5vw, 3rem);
     font-weight: 800;
+    overflow-wrap: anywhere;
+}
+.proposed-team li.known-minion { grid-template-rows: minmax(0, 1fr) auto; }
+.proposed-team .player-tile-name { text-align: center; }
+.proposed-team .known-minion .player-tile-name { align-self: center; }
+.proposed-team .player-tile-role {
+    align-self: end;
+    color: #ffb4b4;
+    font-size: clamp(.8rem, 2vw, 1.1rem);
+    letter-spacing: .1em;
+    text-transform: uppercase;
 }
 .proposal-view #proposal-controls {
     display: flex;
@@ -759,7 +785,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 }
 .proposal-view #proposal-controls > p { margin: 0 0 1rem; font-size: clamp(1rem, 2.5vw, 1.25rem); }
 .proposal-view .choice-row { flex: 1; flex-wrap: nowrap; }
-.proposal-view .choice-row button { min-height: 8rem; font-size: clamp(1.25rem, 4vw, 2rem); }
+.proposal-view .choice-row button { min-height: clamp(10rem, 18vh, 14rem); font-size: clamp(1.25rem, 4vw, 2rem); }
 .proposal-view #proposal-progress { margin: 0; text-align: center; }
 .quest-view, .player-status-view {
     position: fixed;
@@ -804,15 +830,35 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 }
 .quest-view .quest-player-tile strong, .player-status-view .quest-player-tile strong { font-size: clamp(1.5rem, 5vw, 3.5rem); }
 .quest-view .quest-player-tile span, .player-status-view .quest-player-tile span { font-size: clamp(.9rem, 2.5vw, 1.2rem); font-weight: 700; }
-.quest-view .quest-player-tile.waiting, .player-status-view .quest-player-tile.waiting {
+.quest-view .quest-player-tile.waiting {
     border: 2px solid #fff;
     background: #d9ffe9;
     color: #102019;
 }
-.quest-view .quest-player-tile.submitted {
+.player-status-view .quest-player-tile.waiting {
+    border: 1px solid #426356;
+    background: #101513;
+    color: #f4f7f5;
+}
+.quest-view .quest-player-tile.submitted, .player-status-view .quest-player-tile.confirmed {
     border: 2px solid #26302c;
     background: #111614;
     color: #66716c;
+}
+#role-confirmation-players {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(4rem, auto);
+    width: min(100%, 90rem);
+    margin-inline: auto;
+}
+#role-confirmation-players.double-stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.player-status-view .quest-player-tile {
+    max-width: none;
+    min-height: 5rem;
+    padding: clamp(.8rem, 2vw, 1.5rem);
+    border-radius: .6rem;
 }
 .quest-view #quest-controls { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .quest-view #quest-controls > p { margin: 0 0 1rem; font-size: clamp(1rem, 2.5vw, 1.25rem); }
@@ -909,7 +955,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     .quest-card-icon { font-size: 1.1rem; }
     .quest-card-status { display: none; }
     .quest-card-team-size { font-size: .6rem; }
-    .proposal-view { grid-template-rows: auto minmax(12rem, 1fr) auto; }
+    .proposal-view { grid-template-rows: minmax(0, 1fr) auto auto; }
     .proposal-view .choice-row { flex-direction: column; }
     .proposal-view .choice-row button { min-height: 7rem; }
     .quest-view .choice-row { flex-direction: column; }
