@@ -1040,6 +1040,8 @@
         roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
         roleRevealHint.hidden = !roleRevealed;
         roleReveal.classList.toggle("revealed", roleRevealed);
+        roleReveal.classList.toggle("merlin", roleRevealed && role === "merlin");
+        roleReveal.classList.toggle("assassin", roleRevealed && role === "assassin");
         const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
         const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
         roleReveal.hidden = showAssassinAction || showMerlinAction;
@@ -1064,7 +1066,9 @@
                 : role === "traitor"
                     ? "Stay hidden. You may succeed or fail a quest when selected."
                     : "Help three quests succeed. You can only play success cards.";
-        roleConfirmation.classList.toggle("traitor", role === "traitor" || role === "assassin");
+        roleConfirmation.classList.toggle("traitor", role === "traitor");
+        roleConfirmation.classList.toggle("merlin", role === "merlin");
+        roleConfirmation.classList.toggle("assassin", role === "assassin");
         if (wasHidden) roleConfirmation.focus();
     }
 
