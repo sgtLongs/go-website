@@ -220,6 +220,7 @@ func (r *Room) sendSnapshot(client *Client) {
 		snapshot.Game = &state
 		if role, assigned := r.game.RoleFor(client.participant.ID); assigned {
 			snapshot.Role = string(role)
+			snapshot.KnownRoles = r.game.KnownRolesFor(client.participant.ID)
 			snapshot.RoleConfirmed = r.roleConfirmations[client.participant.ID]
 		}
 		snapshot.ProposalVoteSubmitted = r.game.HasVoted(client.participant.ID)
@@ -357,6 +358,12 @@ func (r *Room) handleCommand(command roomCommand) {
 			return
 		}
 		_, err = r.game.PlayQuestCard(command.client.participant.ID, command.choice)
+	case "assassinate":
+		if len(command.playerIDs) != 1 {
+			err = game.ErrInvalidTarget
+		} else {
+			_, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
+		}
 	default:
 		return
 	}
@@ -435,7 +442,10 @@ func (r *Room) launchGame(players []game.Player) error {
 		}
 		r.queueEvent(connected, Event{
 			Type: "role_assigned", RoomID: r.id,
-			Data: map[string]string{"role": string(role)},
+			Data: map[string]any{
+				"role":       string(role),
+				"knownRoles": r.game.KnownRolesFor(connected.participant.ID),
+			},
 		})
 	}
 	return nil
@@ -588,6 +598,12 @@ func (r *Room) queueGameError(client *Client, err error) {
 		message = "You are not on this quest."
 	case errors.Is(err, game.ErrInnocentCannotFail):
 		message = "Only traitors may play a fail card."
+	case errors.Is(err, game.ErrNotAssassin):
+		message = "Only the Assassin may assassinate a player."
+	case errors.Is(err, game.ErrAssassinationUsed):
+		message = "The Assassin has already made their one attempt."
+	case errors.Is(err, game.ErrInvalidTarget):
+		message = "Choose another player to assassinate."
 	case errors.Is(err, game.ErrWrongPhase), errors.Is(err, game.ErrNotActive):
 		message = "That action is not available right now."
 	}

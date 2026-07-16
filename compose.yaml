@@ -1,3 +1,5 @@
+name: go-website-local
+
 services:
   app:
     build:
@@ -11,8 +13,9 @@ services:
       DATA_PATH: "/app/data/game.db"
       GIN_MODE: "release"
     volumes:
-      - game-data:/app/data
+      - local-game-data:/app/data
     restart: unless-stopped
 
 volumes:
-  game-data:
+  local-game-data:
+    name: go-website_local-game-data

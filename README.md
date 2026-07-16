@@ -51,13 +51,18 @@ docker compose logs -f
 docker compose down
 ```
 
-Game data is stored in the `go-website_game-data` Docker volume. Do not use
+Local game data is stored in the `go-website_local-game-data` Docker volume.
+It is independent from both deployed environments, so the main branch can run
+on port 8080 without opening the production database. Its Compose project is
+named `go-website-local`, keeping its containers and network separate from the
+deployment stack. Do not use
 `docker compose down --volumes` unless the data should be permanently deleted.
 
-## Deployed environments
+## Runtime environments
 
 | Git branch | Environment | URL | Compose service | Data volume |
 | --- | --- | --- | --- | --- |
+| `main` | Local | <http://192.168.68.60:8080/> | `app` | `go-website_local-game-data` |
 | `prod` | Production | <http://192.168.68.60/> | `production` | `go-website_game-data` |
 | `beta` | Beta | <http://192.168.68.60/beta/> | `beta` | `go-website_beta-game-data` |
 
@@ -114,14 +119,14 @@ trusted runner account and host, restrict repository write access, and never
 run pull-request code on this runner. This is especially important if the
 repository is public.
 
-The deployment stack deliberately reuses `go-website_game-data` for production
-and creates the separate `go-website_beta-game-data` volume for beta. Back up
-the production volume before the first cutover. On its first production
-deployment, the workflow detects and stops the older local Compose `app`
-container so both processes cannot open the same BoltDB file. If the cutover
-fails, it runs that previous image behind Caddy (or restarts the original
-container as a final fallback). It removes the legacy container only after a
-successful cutover or rollback.
+The deployment stack uses `go-website_game-data` for production and
+`go-website_beta-game-data` for beta. The root Compose stack uses the third,
+independent `go-website_local-game-data` volume. Back up the production volume
+before the first cutover. During migration from an older checkout, the workflow
+only stops a legacy local `app` container if it is still attached to the
+production volume. If the cutover fails, it runs that previous image behind
+Caddy (or restarts the original container as a final fallback). It removes the
+legacy container only after a successful cutover or rollback.
 
 ### 2. Register the Actions runner
 
@@ -222,6 +227,6 @@ For beta, use `BETA_IMAGE` and the `beta` service. A private GHCR package
 requires `docker login ghcr.io` with a token that has `read:packages` before a
 manual pull.
 
-An image rollback does not roll back BoltDB data. Keep the two volumes
+An image rollback does not roll back BoltDB data. Keep the three volumes
 independent, take a consistent backup before incompatible persistence changes,
 and never add `--volumes` to deployment shutdown or cleanup commands.

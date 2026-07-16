@@ -55,7 +55,11 @@ body.confirming-role { overflow: hidden; }
 .end-game-dialog h2 { margin: 0 0 .75rem; font-size: clamp(2rem, 8vw, 3.5rem); }
 .end-game-dialog p:not(.eyebrow) { color: #bac3bf; line-height: 1.5; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1.5rem; }
-.dialog-actions #cancel-end-game, .dialog-actions #cancel-leave-room { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+.dialog-actions #cancel-end-game, .dialog-actions #cancel-leave-room, .dialog-actions .secondary { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+.assassination-dialog { max-height: 90vh; overflow-y: auto; }
+.assassination-dialog fieldset { margin-top: 1.25rem; }
+.assassination-dialog button:disabled { cursor: not-allowed; opacity: .5; }
+.assassination-status { margin: 1rem 0 0; padding: .75rem; border: 1px solid #a96161; border-radius: .55rem; background: #3b2020; color: #ffc1c1; line-height: 1.4; }
 body.sidebar-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .room-sidebar { transition: none; } }
 
@@ -329,6 +333,72 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .role-card { display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
 .role-reveal { width: min(100%, 28rem); min-height: 3.5rem; }
 .role-reveal.revealed { border: 1px solid #75dfa9; background: #183829; color: #9af0c5; font-size: clamp(1.5rem, 6vw, 2.5rem); font-weight: 900; text-transform: uppercase; }
+.assassin-role-action {
+    position: relative;
+    width: min(100%, 28rem);
+    min-height: 3.5rem;
+    overflow: hidden;
+    border-radius: .65rem;
+    background: transparent;
+    touch-action: pan-y;
+}
+.assassin-role-assassinate {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(12rem, 48%);
+    min-height: 100%;
+    border-radius: .65rem;
+    font-size: .95rem;
+}
+.assassin-role-slider {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .25rem 3.5rem;
+    border: 1px solid #a96161;
+    border-radius: .65rem;
+    background: linear-gradient(105deg, #3b2020, #713838);
+    color: #ffbaba;
+    box-shadow: .4rem 0 1rem #0007;
+    cursor: grab;
+    transform: translateX(var(--assassin-slider-x, 0));
+    transition: transform .22s ease-out;
+    user-select: none;
+}
+.assassin-role-slider.dragging { cursor: grabbing; transition: none; }
+.assassin-role-name {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: grab;
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+    font-weight: 900;
+    text-align: center;
+    text-transform: uppercase;
+}
+.assassin-role-name:hover, .assassin-slide-toggle:hover { filter: none; }
+.assassin-slide-toggle {
+    position: absolute;
+    top: 50%;
+    right: .4rem;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    background: transparent;
+    color: #ffbaba;
+    font-size: 1.65rem;
+    transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: reduce) {
+    .assassin-role-slider { transition: none; }
+}
 .phase-view { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #31433c; }
 .phase-view h3 { margin-top: 0; font-size: 1.3rem; }
 fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem; margin: 0 0 1rem; padding: 0; border: 0; }
@@ -683,6 +753,8 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 #ended-view #final-score, #ended-view #next-game-message { margin: 0; }
 .error { min-height: 1.25em; color: #ffabab; }
 .host-badge { margin-left: .5rem; color: #75dfa9; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
+.role-badge { margin-left: .5rem; padding: .15rem .4rem; border: 1px solid currentColor; border-radius: 999px; color: #9af0c5; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.role-badge.traitor, .role-badge.assassin { color: #ffabab; }
 .participant-offline { color: #9ca7a1; font-style: italic; }
 
 @media (max-width: 480px) {

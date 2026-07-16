@@ -16,9 +16,11 @@
             <button id="sidebar-close" class="sidebar-close" type="button" aria-label="Close room menu">×</button>
         </div>
         <nav aria-label="Room actions">
+            <button id="assassinate-player" class="sidebar-action danger" type="button" hidden>Assassinate a Player</button>
             <button id="end-game" class="sidebar-action danger" type="button" hidden>Exit Game</button>
             <button id="leave-room" class="sidebar-action secondary" type="button">Leave to Lobby Browser</button>
         </nav>
+        <p id="assassination-status" class="assassination-status" role="status" hidden></p>
     </aside>
     <dialog id="end-game-dialog" class="end-game-dialog" aria-labelledby="end-game-title" aria-describedby="end-game-description">
         <p class="eyebrow">Host action</p>
@@ -28,6 +30,18 @@
             <button id="cancel-end-game" type="button">Keep playing</button>
             <button id="confirm-end-game" class="danger" type="button">Exit Game</button>
         </div>
+    </dialog>
+    <dialog id="assassination-dialog" class="end-game-dialog assassination-dialog" aria-labelledby="assassination-title" aria-describedby="assassination-description">
+        <p class="eyebrow">Assassin action</p>
+        <h2 id="assassination-title">Who is Merlin?</h2>
+        <p id="assassination-description">You have one attempt. If you choose Merlin, the traitors win immediately. If you are wrong, the game continues and everyone will know you are the Assassin.</p>
+        <form id="assassination-form">
+            <fieldset id="assassination-options" class="assassination-options"></fieldset>
+            <div class="dialog-actions">
+                <button id="cancel-assassination" class="secondary" type="button">Keep waiting</button>
+                <button id="confirm-assassination" class="danger" type="submit" disabled>Assassinate</button>
+            </div>
+        </form>
     </dialog>
     <dialog id="leave-room-dialog" class="end-game-dialog" aria-labelledby="leave-room-title" aria-describedby="leave-room-description">
         <p class="eyebrow">Leave room</p>
@@ -129,6 +143,17 @@
                     <button id="role-reveal" class="role-reveal" type="button">
                         <span id="role">Reveal Secret Role</span>
                     </button>
+                    <div id="assassin-role-action" class="assassin-role-action" hidden>
+                        <button id="role-assassinate-player" class="assassin-role-assassinate danger" type="button">Assassinate Player</button>
+                        <div id="assassin-role-slider" class="assassin-role-slider">
+                            <button id="assassin-role-hide" class="assassin-role-name" type="button" aria-label="Assassin. Hide secret role">
+                                <span>Assassin</span>
+                            </button>
+                            <button id="assassin-slide-toggle" class="assassin-slide-toggle" type="button" aria-label="Reveal assassination action" aria-expanded="false" aria-controls="role-assassinate-player">
+                                <span aria-hidden="true">←</span>
+                            </button>
+                        </div>
+                    </div>
                 </section>
 
                 <p id="round-result" class="round-result" role="status" hidden></p>

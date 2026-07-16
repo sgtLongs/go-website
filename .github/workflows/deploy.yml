@@ -183,7 +183,8 @@ jobs:
           if [[ "$SERVICE" == production && -z "$previous_container" ]]; then
             legacy_containers=$(docker ps --all --quiet \
               --filter label=com.docker.compose.project=go-website \
-              --filter label=com.docker.compose.service=app)
+              --filter label=com.docker.compose.service=app \
+              --filter volume=go-website_game-data)
             legacy_container=${legacy_containers%%$'\n'*}
             if [[ -n "$legacy_container" ]]; then
               legacy_image=$(docker inspect --format '{{.Config.Image}}' "$legacy_container")
