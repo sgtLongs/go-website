@@ -121,6 +121,7 @@ func newRouterWithBasePath(basePath string, stores ...*persistence.Store) *gin.E
 	routes.GET("/api/lobbies", lobbyHandler.List)
 	routes.POST("/api/lobbies", lobbyHandler.Create)
 	routes.POST("/api/lobbies/:lobbyID/join", lobbyHandler.Join)
+	routes.POST("/api/lobbies/:lobbyID/tab-session", lobbyHandler.CreateTabSession)
 	routes.GET("/ws/rooms/:roomID", realtimeHandler.ServeWebSocket)
 	routes.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

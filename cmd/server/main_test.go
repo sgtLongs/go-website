@@ -80,6 +80,15 @@ func TestRootRoutesRemainUnprefixed(t *testing.T) {
 	response = request(t, router, http.MethodGet, "/room/"+lobbyID, nil, accessCookie)
 	assertStatus(t, response, http.StatusOK)
 	assertBodyContains(t, response, `<base href="/">`)
+
+	response = request(t, router, http.MethodPost, "/api/lobbies/"+lobbyID+"/tab-session", nil, accessCookie)
+	assertStatus(t, response, http.StatusCreated)
+	var tabSession struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &tabSession); err != nil || tabSession.Token == "" {
+		t.Fatalf("tab session response = %q, decode error = %v", response.Body.String(), err)
+	}
 }
 
 func TestBetaRoutesUseBasePath(t *testing.T) {

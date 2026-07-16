@@ -53,7 +53,14 @@ func (h *Handler) ServeWebSocket(c *gin.Context) {
 		participant = Participant{ID: id, Name: canonicalName, Host: host}
 	}
 
-	connection, err := h.upgrader.Upgrade(c.Writer, c.Request, nil)
+	responseHeader := http.Header{}
+	for _, protocol := range websocket.Subprotocols(c.Request) {
+		if strings.HasPrefix(protocol, "lobby-tab-token.") {
+			responseHeader.Set("Sec-WebSocket-Protocol", protocol)
+			break
+		}
+	}
+	connection, err := h.upgrader.Upgrade(c.Writer, c.Request, responseHeader)
 	if err != nil {
 		return
 	}

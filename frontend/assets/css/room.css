@@ -121,6 +121,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
     from { opacity: 1; }
     to { opacity: 0; }
 }
+.game-starting-sidebar-toggle { position: fixed; z-index: 2; top: 1.25rem; left: 1.25rem; }
 .game-starting-content { position: relative; z-index: 2; width: min(100%, 60rem); }
 .game-starting h2 { margin: 0; font-size: clamp(3.5rem, 13vw, 8rem); line-height: .9; text-transform: uppercase; }
 .game-starting-countdown { margin: clamp(1rem, 3vh, 2rem) 0 0; color: #9af0c5; font-size: clamp(4rem, 18vw, 9rem); font-weight: 900; line-height: 1; }

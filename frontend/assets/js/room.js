@@ -42,6 +42,7 @@
     const sidebar = byID("room-sidebar");
     const sidebarToggle = byID("sidebar-toggle");
     const captainSidebarToggle = byID("captain-sidebar-toggle");
+    const gameStartingSidebarToggle = byID("game-starting-sidebar-toggle");
     const sidebarClose = byID("sidebar-close");
     const sidebarBackdrop = byID("sidebar-backdrop");
     const endGameButton = byID("end-game");
@@ -57,6 +58,7 @@
     const autoJoinKey = `${storagePrefix}room-auto-join:${roomID}`;
     const roomDisplayNameKey = `${storagePrefix}room-display-name:${roomID}`;
     const presenceDisplayNameKey = `${storagePrefix}presence-display-name`;
+    const tabTokenKey = `${storagePrefix}room-tab-token:${roomID}`;
     let socket;
     let reconnectTimer;
     let reconnectAttempts = 0;
@@ -97,13 +99,14 @@
     let rejectedTeamToastHideTimer;
     let rejectedTeamToastExitAnimation;
 
-    const storedDisplayName = window.localStorage.getItem(roomDisplayNameKey)
-        || window.localStorage.getItem(presenceDisplayNameKey)
+    const storedDisplayName = window.sessionStorage.getItem(roomDisplayNameKey)
+        || window.sessionStorage.getItem(presenceDisplayNameKey)
         || "";
     displayName.value = storedDisplayName;
 
     sidebarToggle.addEventListener("click", openSidebar);
     captainSidebarToggle.addEventListener("click", openSidebar);
+    gameStartingSidebarToggle.addEventListener("click", openSidebar);
     sidebarClose.addEventListener("click", closeSidebar);
     sidebarBackdrop.addEventListener("click", closeSidebar);
     document.addEventListener("keydown", (event) => {
@@ -133,7 +136,6 @@
     cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
     confirmLeaveRoom.addEventListener("click", () => {
         intentionallyClosed = true;
-        window.localStorage.removeItem(autoJoinKey);
         socket?.close();
         window.location.assign(appBaseURL.href);
     });
@@ -145,9 +147,9 @@
         event.preventDefault();
         chosenName = displayName.value.trim();
         if (!chosenName) return;
-        window.localStorage.setItem(presenceDisplayNameKey, chosenName);
-        window.localStorage.setItem(roomDisplayNameKey, chosenName);
-        window.localStorage.setItem(autoJoinKey, "true");
+        window.sessionStorage.setItem(presenceDisplayNameKey, chosenName);
+        window.sessionStorage.setItem(roomDisplayNameKey, chosenName);
+        window.sessionStorage.setItem(autoJoinKey, "true");
         joinPanel.hidden = true;
         presencePanel.hidden = false;
         connect();
@@ -208,12 +210,21 @@
         if (!roundResult.hidden && roundResult.classList.contains("team-rejected-toast")) dismissRejectedTeamToast();
     });
 
-    function connect() {
+    async function connect() {
         setStatus("Connecting…", false);
+        let tabToken;
+        try {
+            tabToken = await ensureTabToken();
+        } catch (error) {
+            setStatus(error.message, false);
+            joinPanel.hidden = false;
+            presencePanel.hidden = true;
+            return;
+        }
         const url = new URL(`ws/rooms/${encodeURIComponent(roomID)}`, appBaseURL);
         url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         url.searchParams.set("name", chosenName);
-        socket = new WebSocket(url);
+        socket = new WebSocket(url, [`lobby-tab-token.${tabToken}`]);
 
         socket.addEventListener("open", () => {
             reconnectAttempts = 0;
@@ -230,7 +241,7 @@
                 const currentParticipant = participants.get(playerID);
                 if (currentParticipant) {
                     chosenName = currentParticipant.name;
-                    window.localStorage.setItem(roomDisplayNameKey, chosenName);
+                    window.sessionStorage.setItem(roomDisplayNameKey, chosenName);
                 }
                 role = event.data.role || "";
                 gameState = event.data.game || null;
@@ -328,6 +339,21 @@
         socket.addEventListener("error", () => socket.close());
     }
 
+    async function ensureTabToken() {
+        const storedToken = window.sessionStorage.getItem(tabTokenKey);
+        if (storedToken) return storedToken;
+
+        const response = await fetch(new URL(`api/lobbies/${encodeURIComponent(roomID)}/tab-session`, appBaseURL), {
+            method: "POST",
+            headers: {"Content-Type": "application/json"}
+        });
+        if (!response.ok) throw new Error("Could not create a session for this tab.");
+        const {token} = await response.json();
+        if (!token) throw new Error("Could not create a session for this tab.");
+        window.sessionStorage.setItem(tabTokenKey, token);
+        return token;
+    }
+
     function send(command) {
         gameError.textContent = "";
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
@@ -339,6 +365,7 @@
         sidebar.setAttribute("aria-hidden", "false");
         sidebarToggle.setAttribute("aria-expanded", "true");
         captainSidebarToggle.setAttribute("aria-expanded", "true");
+        gameStartingSidebarToggle.setAttribute("aria-expanded", "true");
         sidebarBackdrop.hidden = false;
         document.body.classList.add("sidebar-open");
         sidebarClose.focus();
@@ -349,6 +376,7 @@
         sidebar.setAttribute("aria-hidden", "true");
         sidebarToggle.setAttribute("aria-expanded", "false");
         captainSidebarToggle.setAttribute("aria-expanded", "false");
+        gameStartingSidebarToggle.setAttribute("aria-expanded", "false");
         sidebarBackdrop.hidden = true;
         document.body.classList.remove("sidebar-open");
         if (returnFocus) sidebarReturnFocus.focus();
@@ -1132,7 +1160,7 @@
         nextGameMessage.textContent = isHost ? "Start a new game when everyone is ready." : "Waiting for the host to start a new game.";
     }
 
-    if (storedDisplayName && window.localStorage.getItem(autoJoinKey) === "true") {
+    if (storedDisplayName && window.sessionStorage.getItem(autoJoinKey) === "true") {
         chosenName = storedDisplayName;
         joinPanel.hidden = true;
         presencePanel.hidden = false;
