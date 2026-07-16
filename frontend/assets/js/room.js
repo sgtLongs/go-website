@@ -353,7 +353,7 @@
         }
         if (traitors.length === 0) {
             const item = document.createElement("li");
-            item.textContent = "No known Minions of Mordred";
+            item.textContent = "No known Minions";
             merlinTraitorList.append(item);
         }
         merlinKnowledgePanel.hidden = false;
@@ -1459,7 +1459,7 @@
 
     function formatRole(assignedRole) {
         const roleNames = {
-            traitor: "Minion of Mordred",
+            traitor: "Minion",
             innocent: "Servants of Aurther",
         };
         return roleNames[assignedRole] || (assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : "");
