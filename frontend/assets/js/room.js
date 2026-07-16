@@ -28,8 +28,6 @@
     const roleAssassinatePlayerButton = byID("role-assassinate-player");
     const merlinRoleAction = byID("merlin-role-action");
     const merlinRoleSlider = byID("merlin-role-slider");
-    const merlinRoleHide = byID("merlin-role-hide");
-    const merlinSlideToggle = byID("merlin-slide-toggle");
     const merlinKnowledgePanel = byID("merlin-knowledge-panel");
     const merlinKnowledgeContent = byID("merlin-knowledge-content");
     const merlinTraitorList = byID("merlin-traitor-list");
@@ -188,22 +186,14 @@
     assassinRoleSlider.addEventListener("pointerup", finishAssassinDrag);
     assassinRoleSlider.addEventListener("pointercancel", cancelAssassinDrag);
     window.addEventListener("resize", () => setAssassinActionRevealed(assassinActionRevealed));
-    merlinRoleHide.addEventListener("click", () => {
+    merlinRoleSlider.addEventListener("click", () => {
         if (suppressMerlinClick) {
             suppressMerlinClick = false;
             return;
         }
         roleRevealed = false;
-        closeMerlinKnowledge();
+        closeMerlinKnowledge(merlinKnowledgeOpen);
         renderRole();
-    });
-    merlinSlideToggle.addEventListener("click", () => {
-        if (suppressMerlinClick) {
-            suppressMerlinClick = false;
-            return;
-        }
-        if (!merlinKnowledgeOpen) openMerlinKnowledge();
-        else closeMerlinKnowledge();
     });
     merlinRoleSlider.addEventListener("pointerdown", beginMerlinTileDrag);
     merlinRoleSlider.addEventListener("pointermove", moveMerlinTileDrag);
@@ -363,7 +353,7 @@
         }
         if (traitors.length === 0) {
             const item = document.createElement("li");
-            item.textContent = "No known traitors";
+            item.textContent = "No known Minions of Mordred";
             merlinTraitorList.append(item);
         }
         merlinKnowledgePanel.hidden = false;
@@ -379,7 +369,6 @@
         const revealedPixels = Math.max(0, Math.min(contentHeight, pointerY - panelBounds.top));
         merlinKnowledgePanel.classList.add("revealing");
         merlinKnowledgeContent.style.transform = `translateY(${-contentHeight + revealedPixels}px)`;
-        merlinSlideToggle.setAttribute("aria-expanded", "true");
     }
 
     function openMerlinKnowledge() {
@@ -388,22 +377,23 @@
         merlinKnowledgeOpen = true;
         void merlinKnowledgePanel.offsetHeight;
         merlinKnowledgePanel.classList.add("open");
-        merlinSlideToggle.setAttribute("aria-expanded", "true");
-        merlinSlideToggle.setAttribute("aria-label", "Hide known traitors");
         setMerlinPanelOffset(0);
     }
 
-    function closeMerlinKnowledge() {
+    function closeMerlinKnowledge(immediately = false) {
         if (!merlinKnowledgeOpen && merlinKnowledgePanel.hidden) {
             roleCard.classList.remove("merlin-list-open");
             return;
         }
         merlinKnowledgeOpen = false;
         merlinKnowledgePanel.classList.remove("open");
-        merlinSlideToggle.setAttribute("aria-expanded", "false");
-        merlinSlideToggle.setAttribute("aria-label", "Show known traitors");
         setMerlinPanelOffset(0);
         window.clearTimeout(merlinKnowledgeHideTimer);
+        if (immediately) {
+            merlinKnowledgePanel.hidden = true;
+            roleCard.classList.remove("merlin-list-open");
+            return;
+        }
         merlinKnowledgeHideTimer = window.setTimeout(() => {
             if (merlinKnowledgeOpen) return;
             merlinKnowledgePanel.hidden = true;
@@ -1065,7 +1055,7 @@
         roleConfirmationHelp.textContent = role === "assassin"
             ? "Stay hidden. You may fail quests, and you have one chance to identify and assassinate Merlin."
             : role === "merlin"
-                ? "Help three quests succeed. Traitors are marked for you in the player sidebar."
+                ? "Help three quests succeed. Minions of Mordred are marked for you in the player sidebar."
                 : role === "traitor"
                     ? "Stay hidden. You may succeed or fail a quest when selected."
                     : "Help three quests succeed. You can only play success cards.";
@@ -1380,15 +1370,15 @@
         endedView.classList.toggle("winning", playerWon);
         endedView.classList.toggle("losing", Boolean(role) && !playerWon);
         endedView.classList.toggle("spectating", !role);
-        byID("winner-message").textContent = innocentsWon ? "Innocents win!" : "Traitor wins!";
+        byID("winner-message").textContent = innocentsWon ? "Servants of Aurther win!" : "Minions of Mordred win!";
         byID("personal-result").textContent = !role
             ? "You watched this game as a spectator."
             : playerWon ? "Your team won" : "Your team lost";
         byID("victory-reason").textContent = gameState.assassination?.correct
-            ? `${gameState.assassination.target.name} was Merlin, so the assassination gave the traitors victory.`
+            ? `${gameState.assassination.target.name} was Merlin, so the assassination gave the Minions of Mordred victory.`
             : innocentsWon
-                ? "The innocents completed three successful quests."
-                : "Three quests failed, giving the traitor the victory.";
+                ? "The Servants of Aurther completed three successful quests."
+                : "Three quests failed, giving the Minions of Mordred the victory.";
         byID("traitor-name").textContent = gameState.traitors.map((player) => player.name).join(", ");
         renderQuestCards(byID("final-quest-cards"));
         byID("final-score").textContent = `${gameState.successfulQuests} successful quests · ${gameState.failedQuests} failed quests`;
@@ -1468,7 +1458,11 @@
     }
 
     function formatRole(assignedRole) {
-        return assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : "";
+        const roleNames = {
+            traitor: "Minion of Mordred",
+            innocent: "Servants of Aurther",
+        };
+        return roleNames[assignedRole] || (assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : "");
     }
 
     function updatePresencePanelLocation() {

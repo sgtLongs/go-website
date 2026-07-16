@@ -34,7 +34,7 @@
     <dialog id="assassination-dialog" class="end-game-dialog assassination-dialog" aria-labelledby="assassination-title" aria-describedby="assassination-description">
         <p class="eyebrow">Assassin action</p>
         <h2 id="assassination-title">Who is Merlin?</h2>
-        <p id="assassination-description">You have one attempt. If you choose Merlin, the traitors win immediately. If you are wrong, the game continues and everyone will know you are the Assassin.</p>
+        <p id="assassination-description">You have one attempt. If you choose Merlin, the Minions of Mordred win immediately. If you are wrong, the game continues and everyone will know you are the Assassin.</p>
         <form id="assassination-form">
             <fieldset id="assassination-options" class="assassination-options"></fieldset>
             <div class="dialog-actions">
@@ -159,16 +159,14 @@
                             <button id="merlin-role-hide" class="merlin-role-name" type="button" aria-label="Merlin. Hide secret role">
                                 <span>Merlin</span>
                             </button>
-                            <button id="merlin-slide-toggle" class="merlin-slide-toggle" type="button" aria-label="Show known traitors" aria-expanded="false" aria-controls="merlin-knowledge-panel">
+                            <span class="merlin-slide-toggle" aria-hidden="true">
                                 <span aria-hidden="true">↓</span>
-                            </button>
+                            </span>
                         </div>
                     </div>
                     <section id="merlin-knowledge-panel" class="merlin-knowledge-panel" tabindex="-1" aria-labelledby="merlin-knowledge-title" hidden>
                         <div id="merlin-knowledge-content" class="merlin-knowledge-content">
-                            <div class="merlin-knowledge-handle" aria-hidden="true"></div>
-                            <p class="eyebrow">Known traitors</p>
-                            <h2 id="merlin-knowledge-title">Players serving evil</h2>
+                            <h2 id="merlin-knowledge-title" style="margin-top: 16px;">Known Minions of Mordred</h2>
                             <ul id="merlin-traitor-list" class="merlin-traitor-list"></ul>
                             <p class="merlin-knowledge-hint">Swipe up to hide</p>
                         </div>
@@ -232,7 +230,7 @@
                 <h2 id="winner-message"></h2>
                 <p id="personal-result" class="personal-result"></p>
                 <p id="victory-reason" class="victory-reason"></p>
-                <p>The traitor was <strong id="traitor-name"></strong>.</p>
+                <p>The Minion of Mordred was <strong id="traitor-name"></strong>.</p>
                 <section class="quest-board" aria-labelledby="final-quest-board-title">
                     <h3 id="final-quest-board-title">Quest results</h3>
                     <ol id="final-quest-cards" class="quest-cards"></ol>

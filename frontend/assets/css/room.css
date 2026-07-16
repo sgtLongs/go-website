@@ -456,16 +456,15 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     top: calc(50% + .25rem);
     left: 50%;
     width: min(calc(100% - 2rem), 28rem);
-    max-height: min(70vh, 34rem);
+    height: fit-content;
     overflow: hidden;
     border-radius: 1rem;
     touch-action: none;
     transform: translateX(-50%);
 }
 .merlin-knowledge-content {
-    max-height: min(70vh, 34rem);
-    padding: 2.75rem 1.25rem 1.25rem;
-    overflow-y: auto;
+    height: fit-content;
+    padding: 1.25rem 1.25rem 1.25rem;
     border: 1px solid #75dfa9;
     border-radius: 1rem;
     background: #18211e;
@@ -476,9 +475,7 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .merlin-knowledge-panel.open .merlin-knowledge-content { transform: translateY(var(--merlin-panel-y, 0)); }
 .merlin-knowledge-panel.dragging .merlin-knowledge-content,
 .merlin-knowledge-panel.revealing .merlin-knowledge-content { transition: none; }
-.merlin-knowledge-handle { width: 3.5rem; height: .3rem; margin: 0 auto 1rem; border-radius: 999px; background: #75dfa9; }
-.merlin-knowledge-panel .eyebrow { margin: 0 0 .35rem; }
-.merlin-knowledge-panel h2 { margin: 0 0 1rem; }
+.merlin-knowledge-panel h2 { margin: .25rem 0 1rem; }
 .merlin-traitor-list { margin: 0; }
 .merlin-traitor-list li { padding: .85rem; border: 1px solid #a96161; border-radius: .6rem; background: #3b2020; color: #ffc1c1; font-weight: 800; }
 .merlin-traitor-list li + li { margin-top: .6rem; }
