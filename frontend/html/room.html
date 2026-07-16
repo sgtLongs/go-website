@@ -154,6 +154,25 @@
                             </button>
                         </div>
                     </div>
+                    <div id="merlin-role-action" class="merlin-role-action" hidden>
+                        <div id="merlin-role-slider" class="merlin-role-slider">
+                            <button id="merlin-role-hide" class="merlin-role-name" type="button" aria-label="Merlin. Hide secret role">
+                                <span>Merlin</span>
+                            </button>
+                            <button id="merlin-slide-toggle" class="merlin-slide-toggle" type="button" aria-label="Show known traitors" aria-expanded="false" aria-controls="merlin-knowledge-panel">
+                                <span aria-hidden="true">↓</span>
+                            </button>
+                        </div>
+                    </div>
+                    <section id="merlin-knowledge-panel" class="merlin-knowledge-panel" tabindex="-1" aria-labelledby="merlin-knowledge-title" hidden>
+                        <div id="merlin-knowledge-content" class="merlin-knowledge-content">
+                            <div class="merlin-knowledge-handle" aria-hidden="true"></div>
+                            <p class="eyebrow">Known traitors</p>
+                            <h2 id="merlin-knowledge-title">Players serving evil</h2>
+                            <ul id="merlin-traitor-list" class="merlin-traitor-list"></ul>
+                            <p class="merlin-knowledge-hint">Swipe up to hide</p>
+                        </div>
+                    </section>
                 </section>
 
                 <p id="round-result" class="round-result" role="status" hidden></p>

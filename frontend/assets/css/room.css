@@ -330,7 +330,8 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     font-weight: 800;
 }
 .vote-failure-marker.filled { border-color: #a96161; background: #3b2020; color: #ffc1c1; }
-.role-card { display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
+.role-card { position: relative; display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
+.role-card.merlin-list-open { z-index: 20; }
 .role-reveal { width: min(100%, 28rem); min-height: 3.5rem; }
 .role-reveal.revealed { border: 1px solid #75dfa9; background: #183829; color: #9af0c5; font-size: clamp(1.5rem, 6vw, 2.5rem); font-weight: 900; text-transform: uppercase; }
 .assassin-role-action {
@@ -340,7 +341,7 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     overflow: hidden;
     border-radius: .65rem;
     background: transparent;
-    touch-action: pan-y;
+    touch-action: none;
 }
 .assassin-role-assassinate {
     position: absolute;
@@ -398,6 +399,92 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 }
 @media (prefers-reduced-motion: reduce) {
     .assassin-role-slider { transition: none; }
+}
+.merlin-role-action {
+    position: relative;
+    z-index: 2;
+    width: min(100%, 28rem);
+    min-height: 3.5rem;
+    border-radius: .65rem;
+    touch-action: none;
+}
+.merlin-role-slider {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .25rem 3.5rem;
+    border: 1px solid #75dfa9;
+    border-radius: .65rem;
+    background: linear-gradient(105deg, #183829, #2d624e);
+    color: #9af0c5;
+    cursor: grab;
+    user-select: none;
+}
+.merlin-role-slider.dragging { cursor: grabbing; }
+.merlin-role-name {
+    flex: 1;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: grab;
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+    font-weight: 900;
+    text-align: center;
+    text-transform: uppercase;
+}
+.merlin-role-name:hover, .merlin-slide-toggle:hover { filter: none; }
+.merlin-slide-toggle {
+    position: absolute;
+    top: 50%;
+    right: .4rem;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    background: transparent;
+    color: #9af0c5;
+    font-size: 1.65rem;
+    transform: translateY(-50%);
+}
+.merlin-knowledge-panel {
+    position: absolute;
+    z-index: 1;
+    top: calc(50% + .25rem);
+    left: 50%;
+    width: min(calc(100% - 2rem), 28rem);
+    max-height: min(70vh, 34rem);
+    overflow: hidden;
+    border-radius: 1rem;
+    touch-action: none;
+    transform: translateX(-50%);
+}
+.merlin-knowledge-content {
+    max-height: min(70vh, 34rem);
+    padding: 2.75rem 1.25rem 1.25rem;
+    overflow-y: auto;
+    border: 1px solid #75dfa9;
+    border-radius: 1rem;
+    background: #18211e;
+    box-shadow: 0 1rem 4rem #000b;
+    transform: translateY(-100%);
+    transition: transform .24s ease-out;
+}
+.merlin-knowledge-panel.open .merlin-knowledge-content { transform: translateY(var(--merlin-panel-y, 0)); }
+.merlin-knowledge-panel.dragging .merlin-knowledge-content,
+.merlin-knowledge-panel.revealing .merlin-knowledge-content { transition: none; }
+.merlin-knowledge-handle { width: 3.5rem; height: .3rem; margin: 0 auto 1rem; border-radius: 999px; background: #75dfa9; }
+.merlin-knowledge-panel .eyebrow { margin: 0 0 .35rem; }
+.merlin-knowledge-panel h2 { margin: 0 0 1rem; }
+.merlin-traitor-list { margin: 0; }
+.merlin-traitor-list li { padding: .85rem; border: 1px solid #a96161; border-radius: .6rem; background: #3b2020; color: #ffc1c1; font-weight: 800; }
+.merlin-traitor-list li + li { margin-top: .6rem; }
+.merlin-knowledge-hint { margin: 1rem 0 0; color: #89968f; font-size: .75rem; font-weight: 700; text-align: center; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) {
+    .merlin-knowledge-content { transition: none; }
 }
 .phase-view { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #31433c; }
 .phase-view h3 { margin-top: 0; font-size: 1.3rem; }

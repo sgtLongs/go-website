@@ -26,6 +26,14 @@
     const assassinRoleHide = byID("assassin-role-hide");
     const assassinSlideToggle = byID("assassin-slide-toggle");
     const roleAssassinatePlayerButton = byID("role-assassinate-player");
+    const merlinRoleAction = byID("merlin-role-action");
+    const merlinRoleSlider = byID("merlin-role-slider");
+    const merlinRoleHide = byID("merlin-role-hide");
+    const merlinSlideToggle = byID("merlin-slide-toggle");
+    const merlinKnowledgePanel = byID("merlin-knowledge-panel");
+    const merlinKnowledgeContent = byID("merlin-knowledge-content");
+    const merlinTraitorList = byID("merlin-traitor-list");
+    const roleCard = document.querySelector(".role-card");
     const roleConfirmation = byID("role-confirmation");
     const roleConfirmationTitle = byID("role-confirmation-title");
     const roleConfirmationHelp = byID("role-confirmation-help");
@@ -88,6 +96,15 @@
     let assassinDragOffset = 0;
     let assassinDragging = false;
     let suppressAssassinClick = false;
+    let merlinTileDragStartY = 0;
+    let merlinTileDragOffset = 0;
+    let merlinTileDragging = false;
+    let suppressMerlinClick = false;
+    let merlinPanelDragStartY = 0;
+    let merlinPanelDragOffset = 0;
+    let merlinPanelDragging = false;
+    let merlinKnowledgeOpen = false;
+    let merlinKnowledgeHideTimer;
     let roleConfirmed = false;
     let pendingRoleConfirmations = [];
     let pendingGameStartConfirmations = [];
@@ -130,6 +147,7 @@
     sidebarBackdrop.addEventListener("click", closeSidebar);
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && sidebar.classList.contains("open")) closeSidebar();
+        if (event.key === "Escape" && merlinKnowledgeOpen) closeMerlinKnowledge();
     });
     window.addEventListener("resize", scheduleCaptainPlayerLayout);
     endGameButton.addEventListener("click", () => {
@@ -146,6 +164,7 @@
     });
     roleReveal.addEventListener("click", () => {
         roleRevealed = !roleRevealed;
+        if (!roleRevealed) closeMerlinKnowledge();
         renderRole();
     });
     assassinRoleHide.addEventListener("click", () => {
@@ -169,6 +188,36 @@
     assassinRoleSlider.addEventListener("pointerup", finishAssassinDrag);
     assassinRoleSlider.addEventListener("pointercancel", cancelAssassinDrag);
     window.addEventListener("resize", () => setAssassinActionRevealed(assassinActionRevealed));
+    merlinRoleHide.addEventListener("click", () => {
+        if (suppressMerlinClick) {
+            suppressMerlinClick = false;
+            return;
+        }
+        roleRevealed = false;
+        closeMerlinKnowledge();
+        renderRole();
+    });
+    merlinSlideToggle.addEventListener("click", () => {
+        if (suppressMerlinClick) {
+            suppressMerlinClick = false;
+            return;
+        }
+        if (!merlinKnowledgeOpen) openMerlinKnowledge();
+        else closeMerlinKnowledge();
+    });
+    merlinRoleSlider.addEventListener("pointerdown", beginMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointermove", moveMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointerup", finishMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointercancel", cancelMerlinTileDrag);
+    merlinKnowledgePanel.addEventListener("pointerdown", beginMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointermove", moveMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointerup", finishMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointercancel", cancelMerlinPanelDrag);
+    document.addEventListener("click", (event) => {
+        if (!merlinKnowledgeOpen) return;
+        if (merlinKnowledgePanel.contains(event.target) || merlinRoleAction.contains(event.target)) return;
+        closeMerlinKnowledge();
+    });
     leaveRoomButton.addEventListener("click", () => {
         closeSidebar(false);
         leaveRoomDialog.showModal();
@@ -257,6 +306,144 @@
         assassinRoleSlider.classList.remove("dragging");
         if (assassinRoleSlider.hasPointerCapture(event.pointerId)) assassinRoleSlider.releasePointerCapture(event.pointerId);
         setAssassinActionRevealed(assassinActionRevealed);
+    }
+
+    function beginMerlinTileDrag(event) {
+        if (event.button !== 0 || merlinRoleAction.hidden || merlinKnowledgeOpen) return;
+        merlinTileDragging = true;
+        suppressMerlinClick = false;
+        merlinTileDragStartY = event.clientY;
+        merlinRoleSlider.classList.add("dragging");
+        merlinRoleSlider.setPointerCapture(event.pointerId);
+    }
+
+    function moveMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        const movement = event.clientY - merlinTileDragStartY;
+        if (Math.abs(movement) > 5) suppressMerlinClick = true;
+        merlinTileDragOffset = Math.max(0, movement);
+        if (merlinTileDragOffset > 0) previewMerlinKnowledge(event.clientY);
+    }
+
+    function finishMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        merlinTileDragging = false;
+        merlinRoleSlider.classList.remove("dragging");
+        if (merlinRoleSlider.hasPointerCapture(event.pointerId)) merlinRoleSlider.releasePointerCapture(event.pointerId);
+        const shouldOpen = event.clientY >= merlinRoleAction.getBoundingClientRect().bottom + 12;
+        merlinTileDragOffset = 0;
+        merlinKnowledgePanel.classList.remove("revealing");
+        void merlinKnowledgePanel.offsetHeight;
+        if (shouldOpen) openMerlinKnowledge();
+        else closeMerlinKnowledge();
+        merlinKnowledgeContent.style.removeProperty("transform");
+        if (suppressMerlinClick) window.setTimeout(() => { suppressMerlinClick = false; }, 0);
+    }
+
+    function cancelMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        merlinTileDragging = false;
+        merlinRoleSlider.classList.remove("dragging");
+        if (merlinRoleSlider.hasPointerCapture(event.pointerId)) merlinRoleSlider.releasePointerCapture(event.pointerId);
+        merlinTileDragOffset = 0;
+        merlinKnowledgePanel.classList.remove("revealing");
+        void merlinKnowledgePanel.offsetHeight;
+        closeMerlinKnowledge();
+        merlinKnowledgeContent.style.removeProperty("transform");
+    }
+
+    function prepareMerlinKnowledge() {
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        merlinTraitorList.replaceChildren();
+        const traitors = (gameState.players || []).filter((player) => knownRoles[player.id] === "traitor");
+        for (const player of traitors) {
+            const item = document.createElement("li");
+            item.textContent = player.name;
+            merlinTraitorList.append(item);
+        }
+        if (traitors.length === 0) {
+            const item = document.createElement("li");
+            item.textContent = "No known traitors";
+            merlinTraitorList.append(item);
+        }
+        merlinKnowledgePanel.hidden = false;
+        roleCard.classList.add("merlin-list-open");
+    }
+
+    function previewMerlinKnowledge(pointerY) {
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        if (merlinKnowledgePanel.hidden) prepareMerlinKnowledge();
+        roleCard.classList.add("merlin-list-open");
+        const panelBounds = merlinKnowledgePanel.getBoundingClientRect();
+        const contentHeight = merlinKnowledgeContent.getBoundingClientRect().height;
+        const revealedPixels = Math.max(0, Math.min(contentHeight, pointerY - panelBounds.top));
+        merlinKnowledgePanel.classList.add("revealing");
+        merlinKnowledgeContent.style.transform = `translateY(${-contentHeight + revealedPixels}px)`;
+        merlinSlideToggle.setAttribute("aria-expanded", "true");
+    }
+
+    function openMerlinKnowledge() {
+        if (role !== "merlin" || !roleRevealed || !gameState?.active) return;
+        prepareMerlinKnowledge();
+        merlinKnowledgeOpen = true;
+        void merlinKnowledgePanel.offsetHeight;
+        merlinKnowledgePanel.classList.add("open");
+        merlinSlideToggle.setAttribute("aria-expanded", "true");
+        merlinSlideToggle.setAttribute("aria-label", "Hide known traitors");
+        setMerlinPanelOffset(0);
+    }
+
+    function closeMerlinKnowledge() {
+        if (!merlinKnowledgeOpen && merlinKnowledgePanel.hidden) {
+            roleCard.classList.remove("merlin-list-open");
+            return;
+        }
+        merlinKnowledgeOpen = false;
+        merlinKnowledgePanel.classList.remove("open");
+        merlinSlideToggle.setAttribute("aria-expanded", "false");
+        merlinSlideToggle.setAttribute("aria-label", "Show known traitors");
+        setMerlinPanelOffset(0);
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        merlinKnowledgeHideTimer = window.setTimeout(() => {
+            if (merlinKnowledgeOpen) return;
+            merlinKnowledgePanel.hidden = true;
+            roleCard.classList.remove("merlin-list-open");
+        }, 240);
+    }
+
+    function setMerlinPanelOffset(offset) {
+        merlinPanelDragOffset = Math.min(0, offset);
+        merlinKnowledgeContent.style.setProperty("--merlin-panel-y", `${merlinPanelDragOffset}px`);
+    }
+
+    function beginMerlinPanelDrag(event) {
+        if (event.button !== 0 || !merlinKnowledgeOpen) return;
+        merlinPanelDragging = true;
+        merlinPanelDragStartY = event.clientY;
+        merlinKnowledgePanel.classList.add("dragging");
+        merlinKnowledgePanel.setPointerCapture(event.pointerId);
+    }
+
+    function moveMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        setMerlinPanelOffset(event.clientY - merlinPanelDragStartY);
+    }
+
+    function finishMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        merlinPanelDragging = false;
+        merlinKnowledgePanel.classList.remove("dragging");
+        if (merlinKnowledgePanel.hasPointerCapture(event.pointerId)) merlinKnowledgePanel.releasePointerCapture(event.pointerId);
+        if (merlinPanelDragOffset <= -48) closeMerlinKnowledge();
+        else setMerlinPanelOffset(0);
+    }
+
+    function cancelMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        merlinPanelDragging = false;
+        merlinKnowledgePanel.classList.remove("dragging");
+        if (merlinKnowledgePanel.hasPointerCapture(event.pointerId)) merlinKnowledgePanel.releasePointerCapture(event.pointerId);
+        setMerlinPanelOffset(0);
     }
 
     joinForm.addEventListener("submit", (event) => {
@@ -859,9 +1046,12 @@
         roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
         roleReveal.classList.toggle("revealed", roleRevealed);
         const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
-        roleReveal.hidden = showAssassinAction;
+        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
+        roleReveal.hidden = showAssassinAction || showMerlinAction;
         assassinRoleAction.hidden = !showAssassinAction;
+        merlinRoleAction.hidden = !showMerlinAction;
         if (!showAssassinAction) setAssassinActionRevealed(false);
+        if (!showMerlinAction) closeMerlinKnowledge();
     }
 
     function renderRoleConfirmation() {
@@ -1183,6 +1373,7 @@
     }
 
     function renderEndedGame() {
+        closeMerlinKnowledge();
         showOnly(endedView);
         const innocentsWon = gameState.winner === "innocent";
         const playerWon = Boolean(role) && roleFaction(role) === gameState.winner;
@@ -1220,6 +1411,7 @@
         role = "";
         knownRoles = {};
         roleRevealed = false;
+        closeMerlinKnowledge();
         roleConfirmed = false;
         pendingRoleConfirmations = [];
         dismissQuestResult(true);
