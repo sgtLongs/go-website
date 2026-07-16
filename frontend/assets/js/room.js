@@ -20,6 +20,7 @@
     const waitingMessage = byID("waiting-message");
     const nextGameMessage = byID("next-game-message");
     const roleElement = byID("role");
+    const roleRevealHint = byID("role-reveal-hint");
     const roleReveal = byID("role-reveal");
     const assassinRoleAction = byID("assassin-role-action");
     const assassinRoleSlider = byID("assassin-role-slider");
@@ -204,9 +205,12 @@
     merlinKnowledgePanel.addEventListener("pointerup", finishMerlinPanelDrag);
     merlinKnowledgePanel.addEventListener("pointercancel", cancelMerlinPanelDrag);
     document.addEventListener("click", (event) => {
-        if (!merlinKnowledgeOpen) return;
-        if (merlinKnowledgePanel.contains(event.target) || merlinRoleAction.contains(event.target)) return;
-        closeMerlinKnowledge();
+        const roleSpecificViewOpen = !assassinRoleAction.hidden || !merlinRoleAction.hidden;
+        if (!roleSpecificViewOpen || roleCard.contains(event.target)) return;
+        roleRevealed = false;
+        setAssassinActionRevealed(false);
+        closeMerlinKnowledge(true);
+        renderRole();
     });
     leaveRoomButton.addEventListener("click", () => {
         closeSidebar(false);
@@ -248,7 +252,7 @@
     }
 
     function assassinRevealDistance() {
-        return Math.min(192, assassinRoleAction.clientWidth * .48);
+        return Math.max(0, assassinRoleAction.clientWidth - 56);
     }
 
     function setAssassinSliderOffset(offset) {
@@ -1034,6 +1038,7 @@
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
         const assignedRole = role ? formatRole(role) : (isPlayer ? "Assigning…" : "Spectator");
         roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
+        roleRevealHint.hidden = !roleRevealed;
         roleReveal.classList.toggle("revealed", roleRevealed);
         const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
         const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
@@ -1460,7 +1465,7 @@
     function formatRole(assignedRole) {
         const roleNames = {
             traitor: "Minion",
-            innocent: "Servants of Aurther",
+            innocent: "Loyal Servant",
         };
         return roleNames[assignedRole] || (assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : "");
     }

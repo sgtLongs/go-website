@@ -142,12 +142,14 @@
                 <section class="role-card" aria-label="Secret role">
                     <button id="role-reveal" class="role-reveal" type="button">
                         <span id="role">Reveal Secret Role</span>
+                        <span id="role-reveal-hint" class="role-reveal-hint" hidden>Click to hide</span>
                     </button>
                     <div id="assassin-role-action" class="assassin-role-action" hidden>
                         <button id="role-assassinate-player" class="assassin-role-assassinate danger" type="button">Assassinate Player</button>
                         <div id="assassin-role-slider" class="assassin-role-slider">
                             <button id="assassin-role-hide" class="assassin-role-name" type="button" aria-label="Assassin. Hide secret role">
                                 <span>Assassin</span>
+                                <span class="role-reveal-hint">Click to hide</span>
                             </button>
                             <button id="assassin-slide-toggle" class="assassin-slide-toggle" type="button" aria-label="Reveal assassination action" aria-expanded="false" aria-controls="role-assassinate-player">
                                 <span aria-hidden="true">←</span>
@@ -158,6 +160,7 @@
                         <div id="merlin-role-slider" class="merlin-role-slider">
                             <button id="merlin-role-hide" class="merlin-role-name" type="button" aria-label="Merlin. Hide secret role">
                                 <span>Merlin</span>
+                                <span class="role-reveal-hint">Click to hide</span>
                             </button>
                             <span class="merlin-slide-toggle" aria-hidden="true">
                                 <span aria-hidden="true">↓</span>
