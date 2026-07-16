@@ -240,7 +240,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
 .role-confirmation.assassin .eyebrow,
 .role-confirmation.assassin .role-confirmation-title,
 .role-confirmation.assassin .role-confirmation-help,
-.role-confirmation.assassin .role-confirmation-action { color: #fff; }
+.role-confirmation.assassin .role-confirmation-action { color: #ed0000; }
 .role-confirmation-title {
     margin: 0;
     color: #9af0c5;
