@@ -51,6 +51,21 @@ docker compose logs -f
 docker compose down
 ```
 
+Once the local stack exists, restart its current image without rebuilding it:
+
+```bash
+make restart-local
+```
+
+After changing application code or embedded frontend assets, rebuild and
+recreate the local app instead. Docker preserves the Go module and compiler
+caches between these builds, so unchanged packages do not need to be compiled
+again:
+
+```bash
+make rebuild-local
+```
+
 Local game data is stored in the `go-website_local-game-data` Docker volume.
 It is independent from both deployed environments, so the main branch can run
 on port 8080 without opening the production database. Its Compose project is

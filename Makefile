@@ -7,12 +7,13 @@ LOCAL_VOLUME := go-website_local-game-data
 
 .DEFAULT_GOAL := help
 
-.PHONY: help status restart-local restart-production reset-local reset-production reset-beta
+.PHONY: help status restart-local rebuild-local restart-production reset-local reset-production reset-beta
 
 help:
 	@echo "Available commands:"
 	@echo "  make status              Show local and deployed containers"
-	@echo "  make restart-local       Rebuild and recreate the port-8080 local app"
+	@echo "  make restart-local       Restart the existing port-8080 local app"
+	@echo "  make rebuild-local       Rebuild and recreate the port-8080 local app"
 	@echo "  make restart-production  Restart the production service"
 	@echo "  make reset-local         Erase local data and restart local"
 	@echo "  make reset-production    Erase production data and restart production"
@@ -26,7 +27,10 @@ status:
 	@$(DEPLOY_COMPOSE) ps -a
 
 restart-local:
-	@$(COMPOSE) up --build --detach --no-deps --force-recreate app
+	@$(COMPOSE) restart app
+
+rebuild-local:
+	@$(COMPOSE) up --build --detach --no-deps app
 
 restart-production:
 	@$(DEPLOY_COMPOSE) restart production
@@ -43,7 +47,7 @@ reset-local:
 		exit 1; \
 	fi
 	@docker run --rm -v $(LOCAL_VOLUME):/data alpine rm -f /data/game.db
-	@$(COMPOSE) up --build --detach --no-deps --force-recreate app
+	@$(COMPOSE) up --build --detach --no-deps app
 	@echo "Local database cleared and local restarted."
 
 reset-production:
