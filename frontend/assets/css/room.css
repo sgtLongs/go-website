@@ -854,11 +854,36 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 #role-confirmation-players.double-stacked {
     grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+#quest-team {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(4rem, auto);
+    width: min(100%, 90rem);
+    margin-inline: auto;
+}
+#quest-team.double-stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .player-status-view .quest-player-tile {
     max-width: none;
     min-height: 5rem;
     padding: clamp(.8rem, 2vw, 1.5rem);
     border-radius: .6rem;
+}
+.quest-view #quest-team .quest-player-tile {
+    max-width: none;
+    min-height: 5rem;
+    padding: clamp(.8rem, 2vw, 1.5rem);
+    border-radius: .6rem;
+}
+.quest-view #quest-team .quest-player-tile.waiting {
+    border: 1px solid #426356;
+    background: #101513;
+    color: #f4f7f5;
+}
+.quest-view #quest-team .quest-player-tile.submitted {
+    border: 2px solid #26302c;
+    background: #111614;
+    color: #66716c;
 }
 .quest-view #quest-controls { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .quest-view #quest-controls > p { margin: 0 0 1rem; font-size: clamp(1rem, 2.5vw, 1.25rem); }

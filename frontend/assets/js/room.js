@@ -129,6 +129,7 @@
     let deferredQuestResult = null;
     let questTeamSelectionOrder = [];
     let captainLayoutFrame;
+    let questTeamLayoutFrame;
     let rejectedTeamToastKey = "";
     let rejectedTeamToastTimer;
     let rejectedTeamToastHideTimer;
@@ -148,7 +149,10 @@
         if (event.key === "Escape" && sidebar.classList.contains("open")) closeSidebar();
         if (event.key === "Escape" && merlinKnowledgeOpen) closeMerlinKnowledge();
     });
-    window.addEventListener("resize", scheduleCaptainPlayerLayout);
+    window.addEventListener("resize", () => {
+        scheduleCaptainPlayerLayout();
+        scheduleQuestTeamLayout();
+    });
     endGameButton.addEventListener("click", () => {
         closeSidebar(false);
         endGameDialog.showModal();
@@ -1304,6 +1308,19 @@
             item.append(name, state);
             list.append(item);
         }
+        scheduleQuestTeamLayout();
+    }
+
+    function scheduleQuestTeamLayout() {
+        window.cancelAnimationFrame(questTeamLayoutFrame);
+        questTeamLayoutFrame = window.requestAnimationFrame(updateQuestTeamLayout);
+    }
+
+    function updateQuestTeamLayout() {
+        const list = byID("quest-team");
+        if (list.hidden || list.offsetParent === null) return;
+        list.classList.remove("double-stacked");
+        if (list.scrollHeight > list.clientHeight) list.classList.add("double-stacked");
     }
 
     function renderTeam(list, team) {
