@@ -138,6 +138,7 @@ jobs:
           HEALTH_PATH: ${{ needs.build.outputs.health_path }}
           PAGE_PATH: ${{ needs.build.outputs.page_path }}
           SERVICE: ${{ needs.build.outputs.service }}
+          SITE_DOMAIN: ${{ vars.SITE_DOMAIN || 'localhost' }}
         run: |
           set -Eeuo pipefail
 

@@ -1,8 +1,4 @@
-{
-	auto_https off
-}
-
-:80 {
+(app_routes) {
 	@beta_root path /beta
 	redir @beta_root /beta/ 308
 
@@ -19,4 +15,14 @@
 			stream_close_delay 5m
 		}
 	}
+}
+
+# The public hostname gets automatic HTTPS. Keep explicit HTTP-only listeners
+# for deployment smoke checks and access from the local network.
+{$SITE_DOMAIN:localhost} {
+	import app_routes
+}
+
+http://127.0.0.1, http://192.168.68.60 {
+	import app_routes
 }

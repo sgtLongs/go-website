@@ -6,6 +6,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # Caddy obtains and renews the public TLS certificate automatically.
+      SITE_DOMAIN: "${SITE_DOMAIN:-localhost}"
     volumes:
       - type: bind
         # Mount the directory so atomic checkout file replacements are visible
@@ -13,6 +18,8 @@ services:
         source: .
         target: /etc/caddy
         read_only: true
+      - caddy-data:/data
+      - caddy-config:/config
 
   production:
     image: "${PRODUCTION_IMAGE:-ghcr.io/sgtlongs/go-website:production}"
@@ -49,6 +56,10 @@ services:
       retries: 6
 
 volumes:
+  caddy-data:
+    name: go-website_caddy-data
+  caddy-config:
+    name: go-website_caddy-config
   production-data:
     external: true
     name: go-website_game-data
