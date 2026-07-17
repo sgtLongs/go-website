@@ -75,6 +75,34 @@ func TestCreateJoinAndAuthorize(t *testing.T) {
 	}
 }
 
+func TestTabGrantsHaveIndependentParticipantIdentities(t *testing.T) {
+	s := NewService()
+	l, accessToken, err := s.Create("Friday game", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTab, err := s.NewTabGrant(l.ID, accessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTab, err := s.NewTabGrant(l.ID, accessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstID, firstName, firstHost, firstOK := s.ResolveParticipant(l.ID, firstTab, "Alice")
+	secondID, secondName, secondHost, secondOK := s.ResolveParticipant(l.ID, secondTab, "Bob")
+	if !firstOK || !secondOK || firstID == secondID {
+		t.Fatalf("tab identities = %q and %q; want two valid, distinct identities", firstID, secondID)
+	}
+	if firstName != "Alice" || secondName != "Bob" {
+		t.Fatalf("tab names = %q and %q, want Alice and Bob", firstName, secondName)
+	}
+	if !firstHost || !secondHost {
+		t.Fatal("tab grants should preserve the creator's host access")
+	}
+}
+
 func TestListDoesNotExposePassword(t *testing.T) {
 	s := NewService()
 	l, _, err := s.Create("Visible name", "secret")

@@ -55,7 +55,11 @@ body.confirming-role { overflow: hidden; }
 .end-game-dialog h2 { margin: 0 0 .75rem; font-size: clamp(2rem, 8vw, 3.5rem); }
 .end-game-dialog p:not(.eyebrow) { color: #bac3bf; line-height: 1.5; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .75rem; margin-top: 1.5rem; }
-.dialog-actions #cancel-end-game, .dialog-actions #cancel-leave-room { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+.dialog-actions #cancel-end-game, .dialog-actions #cancel-leave-room, .dialog-actions .secondary { border: 1px solid #5e766c; background: #252c29; color: #f3f7f5; }
+.assassination-dialog { max-height: 90vh; overflow-y: auto; }
+.assassination-dialog fieldset { margin-top: 1.25rem; }
+.assassination-dialog button:disabled { cursor: not-allowed; opacity: .5; }
+.assassination-status { margin: 1rem 0 0; padding: .75rem; border: 1px solid #a96161; border-radius: .55rem; background: #3b2020; color: #ffc1c1; line-height: 1.4; }
 body.sidebar-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .room-sidebar { transition: none; } }
 
@@ -121,6 +125,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
     from { opacity: 1; }
     to { opacity: 0; }
 }
+.game-starting-sidebar-toggle { position: fixed; z-index: 2; top: 1.25rem; left: 1.25rem; }
 .game-starting-content { position: relative; z-index: 2; width: min(100%, 60rem); }
 .game-starting h2 { margin: 0; font-size: clamp(3.5rem, 13vw, 8rem); line-height: .9; text-transform: uppercase; }
 .game-starting-countdown { margin: clamp(1rem, 3vh, 2rem) 0 0; color: #9af0c5; font-size: clamp(4rem, 18vw, 9rem); font-weight: 900; line-height: 1; }
@@ -226,9 +231,16 @@ body.gameplay-active #game-panel { padding: .75rem; }
 }
 .role-confirmation:focus-visible { outline: 4px solid #b8f5d5; outline-offset: -4px; }
 .role-confirmation.traitor { background: radial-gradient(circle at top, #713838, #160f0f 65%); }
+.role-confirmation.merlin { background: radial-gradient(circle at top, #16509f, #000916 65%); }
+.role-confirmation.assassin { background: radial-gradient(circle at top, #2a2a2a, #000000 65%); color: #fff; }
 .role-confirmation-content { width: min(100%, 55rem); }
 .role-confirmation-content .eyebrow { margin: 0 0 clamp(1rem, 4vh, 2rem); }
 .role-confirmation.traitor .eyebrow { color: #ffabab; }
+.role-confirmation.merlin .eyebrow { color: #8fc5ff; }
+.role-confirmation.assassin .eyebrow,
+.role-confirmation.assassin .role-confirmation-title,
+.role-confirmation.assassin .role-confirmation-help,
+.role-confirmation.assassin .role-confirmation-action { color: #d52e2e; }
 .role-confirmation-title {
     margin: 0;
     color: #9af0c5;
@@ -238,6 +250,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
     text-transform: uppercase;
 }
 .role-confirmation.traitor .role-confirmation-title { color: #ffabab; }
+.role-confirmation.merlin .role-confirmation-title { color: #5da9ff; }
 .role-confirmation-help { margin: clamp(1.5rem, 5vh, 3rem) auto 0; font-size: clamp(1.15rem, 3vw, 1.6rem); }
 .role-confirmation-action {
     margin: clamp(2.5rem, 10vh, 6rem) 0 0;
@@ -325,9 +338,193 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     font-weight: 800;
 }
 .vote-failure-marker.filled { border-color: #a96161; background: #3b2020; color: #ffc1c1; }
-.role-card { display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
-.role-reveal { width: min(100%, 28rem); min-height: 3.5rem; }
+.role-card { position: relative; display: flex; justify-content: center; margin: 1rem 0; padding: 1rem; border: 1px solid #426356; border-radius: .75rem; background: #10151399; text-align: center; }
+.role-card.merlin-list-open { z-index: 20; }
+.role-reveal {
+    width: min(100%, 28rem);
+    min-height: 3.5rem;
+    display: grid;
+    place-items: center;
+    gap: .15rem;
+    padding-block: .4rem;
+}
+.role-reveal-hint {
+    color: #8f9d96;
+    font-size: .62rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
 .role-reveal.revealed { border: 1px solid #75dfa9; background: #183829; color: #9af0c5; font-size: clamp(1.5rem, 6vw, 2.5rem); font-weight: 900; text-transform: uppercase; }
+.role-reveal.revealed.merlin { border-color: #5da9ff; background: #092e5e; color: #fff; }
+.role-reveal.revealed.assassin { border-color: #6c2b2b; background: radial-gradient(circle at top, #2a2a2a, #140909 65%); color: #8f1f1f; }
+.assassin-role-action {
+    position: relative;
+    width: min(100%, 28rem);
+    min-height: 3.5rem;
+    overflow: hidden;
+    border-radius: .65rem;
+    background: transparent;
+    touch-action: none;
+}
+.assassin-role-assassinate {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    min-height: 100%;
+    border-radius: .65rem;
+    font-size: .95rem;
+}
+.assassin-role-slider {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .25rem 3.5rem;
+    border: 1px solid #6c2b2b;
+    border-radius: .65rem;
+    background: radial-gradient(circle at top, #2a2a2a, #140909 65%);
+    color: #d52e2e;
+    box-shadow: .4rem 0 1rem #0007;
+    cursor: grab;
+    transform: translateX(var(--assassin-slider-x, 0));
+    transition: transform .22s ease-out;
+    user-select: none;
+}
+.assassin-role-slider.dragging { cursor: grabbing; transition: none; }
+.assassin-role-name {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    place-items: center;
+    gap: .1rem;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: grab;
+    font-weight: 900;
+    text-align: center;
+    text-transform: uppercase;
+}
+.assassin-role-name > span:first-child,
+.merlin-role-name > span:first-child {
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+    line-height: 1;
+}
+.assassin-role-name:hover, .assassin-slide-toggle:hover { filter: none; }
+.assassin-role-name > span:first-child { color: #8f1f1f; }
+.assassin-slide-toggle {
+    position: absolute;
+    top: 50%;
+    right: .45rem;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 1.65rem;
+    transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: reduce) {
+    .assassin-role-slider { transition: none; }
+}
+.merlin-role-action {
+    position: relative;
+    z-index: 2;
+    width: min(100%, 28rem);
+    min-height: 3.5rem;
+    border-radius: .65rem;
+    touch-action: none;
+}
+.merlin-role-slider {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: .25rem 3.5rem;
+    border: 1px solid #5da9ff;
+    border-radius: .65rem;
+    background: linear-gradient(105deg, #092e5e, #123f7c);
+    color: #fff;
+    cursor: grab;
+    user-select: none;
+}
+.merlin-role-slider.dragging { cursor: grabbing; }
+.merlin-role-name {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    place-items: center;
+    gap: .1rem;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    cursor: grab;
+    font-weight: 900;
+    text-align: center;
+    text-transform: uppercase;
+}
+.merlin-role-name:hover, .merlin-slide-toggle:hover { filter: none; }
+.merlin-role-name > span:last-child,
+.assassin-role-name > span:last-child {
+    font-size: .62rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+.merlin-slide-toggle {
+    position: absolute;
+    top: 50%;
+    right: .4rem;
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
+    background: transparent;
+    color: #fff;
+    font-size: 1.65rem;
+    transform: translateY(-50%);
+}
+.merlin-knowledge-panel {
+    position: absolute;
+    z-index: 1;
+    top: calc(50% + .25rem);
+    left: 50%;
+    width: min(calc(100% - 2rem), 28rem);
+    height: fit-content;
+    overflow: hidden;
+    border-radius: 1rem;
+    touch-action: none;
+    transform: translateX(-50%);
+}
+.merlin-knowledge-content {
+    height: fit-content;
+    padding: 1.25rem 1.25rem 1.25rem;
+    border: 1px solid #75dfa9;
+    border-radius: 1rem;
+    background: #18211e;
+    box-shadow: 0 1rem 4rem #000b;
+    transform: translateY(-100%);
+    transition: transform .24s ease-out;
+}
+.merlin-knowledge-panel.open .merlin-knowledge-content { transform: translateY(var(--merlin-panel-y, 0)); }
+.merlin-knowledge-panel.dragging .merlin-knowledge-content,
+.merlin-knowledge-panel.revealing .merlin-knowledge-content { transition: none; }
+.merlin-knowledge-panel h2 { margin: .25rem 0 1rem; }
+.merlin-traitor-list { margin: 0; }
+.merlin-traitor-list li { padding: .85rem; border: 1px solid #a96161; border-radius: .6rem; background: #3b2020; color: #ffc1c1; font-weight: 800; }
+.merlin-traitor-list li + li { margin-top: .6rem; }
+.merlin-knowledge-hint { margin: 1rem 0 0; color: #89968f; font-size: .75rem; font-weight: 700; text-align: center; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) {
+    .merlin-knowledge-content { transition: none; }
+}
 .phase-view { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #31433c; }
 .phase-view h3 { margin-top: 0; font-size: 1.3rem; }
 fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem; margin: 0 0 1rem; padding: 0; border: 0; }
@@ -532,27 +729,53 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     z-index: 10;
     inset: 0;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    gap: clamp(1rem, 4vh, 2.5rem);
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    gap: clamp(.75rem, 2vh, 1.25rem);
     min-height: 100vh;
     min-height: 100dvh;
     margin: 0;
-    padding: clamp(1rem, 4vw, 3rem);
+    padding: clamp(.75rem, 2vw, 1.5rem);
     overflow-y: auto;
     border: 0;
     background: radial-gradient(circle at top, #23483b, #101513 60%);
 }
-.proposal-team { text-align: center; }
-.proposal-team .eyebrow { margin: 0 0 .5rem; }
+.proposal-team {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    text-align: center;
+}
 .proposal-view h3 { margin: 0 0 1rem; font-size: clamp(1.5rem, 5vw, 3rem); }
-.proposed-team { justify-content: center; margin: 0; }
+.proposed-team {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    gap: clamp(.75rem, 2vw, 1.5rem);
+    min-height: 0;
+    margin: 0;
+}
 .proposed-team li {
-    padding: clamp(.7rem, 2vw, 1rem) clamp(1rem, 3vw, 1.5rem);
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    padding: clamp(1rem, 3vw, 2rem);
     border-color: #75dfa9;
+    border-radius: .7rem;
     background: #183829;
     color: #d8ffeb;
-    font-size: clamp(1rem, 3vw, 1.35rem);
+    font-size: clamp(1.5rem, 5vw, 3rem);
     font-weight: 800;
+    overflow-wrap: anywhere;
+}
+.proposed-team li.known-minion { grid-template-rows: minmax(0, 1fr) auto; }
+.proposed-team .player-tile-name { text-align: center; }
+.proposed-team .known-minion .player-tile-name { align-self: center; }
+.proposed-team .player-tile-role {
+    align-self: end;
+    color: #ffb4b4;
+    font-size: clamp(.8rem, 2vw, 1.1rem);
+    letter-spacing: .1em;
+    text-transform: uppercase;
 }
 .proposal-view #proposal-controls {
     display: flex;
@@ -562,7 +785,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 }
 .proposal-view #proposal-controls > p { margin: 0 0 1rem; font-size: clamp(1rem, 2.5vw, 1.25rem); }
 .proposal-view .choice-row { flex: 1; flex-wrap: nowrap; }
-.proposal-view .choice-row button { min-height: 8rem; font-size: clamp(1.25rem, 4vw, 2rem); }
+.proposal-view .choice-row button { min-height: clamp(10rem, 18vh, 14rem); font-size: clamp(1.25rem, 4vw, 2rem); }
 .proposal-view #proposal-progress { margin: 0; text-align: center; }
 .quest-view, .player-status-view {
     position: fixed;
@@ -607,12 +830,57 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 }
 .quest-view .quest-player-tile strong, .player-status-view .quest-player-tile strong { font-size: clamp(1.5rem, 5vw, 3.5rem); }
 .quest-view .quest-player-tile span, .player-status-view .quest-player-tile span { font-size: clamp(.9rem, 2.5vw, 1.2rem); font-weight: 700; }
-.quest-view .quest-player-tile.waiting, .player-status-view .quest-player-tile.waiting {
+.quest-view .quest-player-tile.waiting {
     border: 2px solid #fff;
     background: #d9ffe9;
     color: #102019;
 }
-.quest-view .quest-player-tile.submitted {
+.player-status-view .quest-player-tile.waiting {
+    border: 1px solid #426356;
+    background: #101513;
+    color: #f4f7f5;
+}
+.quest-view .quest-player-tile.submitted, .player-status-view .quest-player-tile.confirmed {
+    border: 2px solid #26302c;
+    background: #111614;
+    color: #66716c;
+}
+#role-confirmation-players {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(4rem, auto);
+    width: min(100%, 90rem);
+    margin-inline: auto;
+}
+#role-confirmation-players.double-stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+#quest-team {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(4rem, auto);
+    width: min(100%, 90rem);
+    margin-inline: auto;
+}
+#quest-team.double-stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.player-status-view .quest-player-tile {
+    max-width: none;
+    min-height: 5rem;
+    padding: clamp(.8rem, 2vw, 1.5rem);
+    border-radius: .6rem;
+}
+.quest-view #quest-team .quest-player-tile {
+    max-width: none;
+    min-height: 5rem;
+    padding: clamp(.8rem, 2vw, 1.5rem);
+    border-radius: .6rem;
+}
+.quest-view #quest-team .quest-player-tile.waiting {
+    border: 1px solid #426356;
+    background: #101513;
+    color: #f4f7f5;
+}
+.quest-view #quest-team .quest-player-tile.submitted {
     border: 2px solid #26302c;
     background: #111614;
     color: #66716c;
@@ -682,6 +950,8 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 #ended-view #final-score, #ended-view #next-game-message { margin: 0; }
 .error { min-height: 1.25em; color: #ffabab; }
 .host-badge { margin-left: .5rem; color: #75dfa9; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
+.role-badge { margin-left: .5rem; padding: .15rem .4rem; border: 1px solid currentColor; border-radius: 999px; color: #9af0c5; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.role-badge.traitor, .role-badge.assassin { color: #ffabab; }
 .participant-offline { color: #9ca7a1; font-style: italic; }
 
 @media (max-width: 480px) {
@@ -710,7 +980,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     .quest-card-icon { font-size: 1.1rem; }
     .quest-card-status { display: none; }
     .quest-card-team-size { font-size: .6rem; }
-    .proposal-view { grid-template-rows: auto minmax(12rem, 1fr) auto; }
+    .proposal-view { grid-template-rows: minmax(0, 1fr) auto auto; }
     .proposal-view .choice-row { flex-direction: column; }
     .proposal-view .choice-row button { min-height: 7rem; }
     .quest-view .choice-row { flex-direction: column; }

@@ -53,8 +53,30 @@ func TestRestoreRejectsTamperedRole(t *testing.T) {
 	}
 }
 
-func TestStartAssignsTraitorAndRandomCaptain(t *testing.T) {
-	choices := []int{1, 2}
+func TestRestoreUpgradesLegacyFactionRoles(t *testing.T) {
+	engine := startedEngine(t)
+	state := engine.Export()
+	for id, role := range state.Roles {
+		switch role {
+		case Assassin:
+			state.Roles[id] = Traitor
+		case Merlin:
+			state.Roles[id] = Innocent
+		}
+	}
+
+	restored := New()
+	if err := restored.Restore(state); err != nil {
+		t.Fatal(err)
+	}
+	roles := restored.Export().Roles
+	if roles["one"] != Assassin || roles["two"] != Merlin {
+		t.Fatalf("upgraded roles = %#v", roles)
+	}
+}
+
+func TestStartAssignsMerlinAssassinAndRandomCaptain(t *testing.T) {
+	choices := []int{1, 0, 2}
 	engine := newWithChooser(func(int) (int, error) {
 		choice := choices[0]
 		choices = choices[1:]
@@ -64,8 +86,11 @@ func TestStartAssignsTraitorAndRandomCaptain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.Roles["two"] != Traitor {
-		t.Fatalf("chosen role = %q, want %q", started.Roles["two"], Traitor)
+	if started.Roles["two"] != Assassin {
+		t.Fatalf("chosen traitor role = %q, want %q", started.Roles["two"], Assassin)
+	}
+	if started.Roles["one"] != Merlin {
+		t.Fatalf("chosen innocent role = %q, want %q", started.Roles["one"], Merlin)
 	}
 	if started.State.Captain.ID != "three" || started.State.Round != 1 || started.State.Phase != ChoosingTeam {
 		t.Fatalf("unexpected initial state: %#v", started.State)
@@ -73,14 +98,75 @@ func TestStartAssignsTraitorAndRandomCaptain(t *testing.T) {
 	if started.State.QuestSize != 2 {
 		t.Fatalf("round 1 quest size = %d, want 2", started.State.QuestSize)
 	}
-	traitors := 0
+	traitors, merlins, assassins := 0, 0, 0
 	for _, role := range started.Roles {
-		if role == Traitor {
+		if isTraitor(role) {
 			traitors++
 		}
+		if role == Merlin {
+			merlins++
+		}
+		if role == Assassin {
+			assassins++
+		}
 	}
-	if traitors != 1 {
-		t.Fatalf("traitors = %d, want 1", traitors)
+	if traitors != 1 || merlins != 1 || assassins != 1 {
+		t.Fatalf("special role counts = traitors %d, Merlins %d, Assassins %d; want 1 each", traitors, merlins, assassins)
+	}
+}
+
+func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
+	engine := startedEngine(t)
+	if got := engine.KnownRolesFor("two"); !reflect.DeepEqual(got, map[string]Role{"one": Traitor, "two": Merlin}) {
+		t.Fatalf("Merlin knowledge = %#v", got)
+	}
+	if got := engine.KnownRolesFor("one"); !reflect.DeepEqual(got, map[string]Role{"one": Assassin}) {
+		t.Fatalf("Assassin knowledge = %#v", got)
+	}
+	if _, err := engine.Assassinate("three", "two"); !errors.Is(err, ErrNotAssassin) {
+		t.Fatalf("non-Assassin error = %v", err)
+	}
+	if _, err := engine.Assassinate("one", "one"); !errors.Is(err, ErrInvalidTarget) {
+		t.Fatalf("self-target error = %v", err)
+	}
+
+	before := engine.Snapshot()
+	correct, err := engine.Assassinate("one", "three")
+	if err != nil || correct {
+		t.Fatalf("missed assassination = %v, %v", correct, err)
+	}
+	state := engine.Snapshot()
+	if !state.Active || state.Phase != before.Phase || state.Round != before.Round {
+		t.Fatalf("missed assassination interrupted play: %#v", state)
+	}
+	if state.Assassination == nil || state.Assassination.Assassin.ID != "one" || state.Assassination.Target.ID != "three" || state.Assassination.Correct {
+		t.Fatalf("public assassination = %#v", state.Assassination)
+	}
+	if _, err := engine.Assassinate("one", "two"); !errors.Is(err, ErrAssassinationUsed) {
+		t.Fatalf("second attempt error = %v", err)
+	}
+
+	restored := New()
+	if err := restored.Restore(engine.Export()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Snapshot(), state) {
+		t.Fatalf("restored assassination = %#v, want %#v", restored.Snapshot(), state)
+	}
+}
+
+func TestCorrectAssassinationGivesTraitorsVictory(t *testing.T) {
+	engine := startedEngine(t)
+	correct, err := engine.Assassinate("one", "two")
+	if err != nil || !correct {
+		t.Fatalf("correct assassination = %v, %v", correct, err)
+	}
+	state := engine.Snapshot()
+	if state.Active || state.Phase != GameComplete || state.Winner != Traitor {
+		t.Fatalf("correct assassination did not finish the game: %#v", state)
+	}
+	if state.Assassination == nil || !state.Assassination.Correct {
+		t.Fatalf("correct assassination was not published: %#v", state.Assassination)
 	}
 }
 

@@ -157,6 +157,36 @@ func (s *Service) Join(id, password string) (string, error) {
 	return token, nil
 }
 
+// NewTabGrant creates an independent participant identity for a browser tab
+// while preserving the access level of the browser-wide grant.
+func (s *Service) NewTabGrant(id, accessToken string) (string, error) {
+	s.mu.RLock()
+	parent, ok := s.grants[tokenKey(accessToken)]
+	_, lobbyExists := s.lobbies[id]
+	s.mu.RUnlock()
+	if !lobbyExists || !ok || parent.lobbyID != id || !s.now().Before(parent.expiresAt) {
+		return "", ErrNotFound
+	}
+
+	token, err := newToken()
+	if err != nil {
+		return "", err
+	}
+	grant := accessGrant{
+		lobbyID:       id,
+		participantID: uuid.NewString(),
+		expiresAt:     parent.expiresAt,
+		host:          parent.host,
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.persistGrant(token, grant); err != nil {
+		return "", err
+	}
+	s.grants[tokenKey(token)] = grant
+	return token, nil
+}
+
 func (s *Service) Authorized(id, token string) bool {
 	s.mu.RLock()
 	grant, ok := s.grants[tokenKey(token)]

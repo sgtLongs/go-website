@@ -135,7 +135,7 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 		t.Fatal("game should be active")
 	}
 
-	traitors := 0
+	traitors, merlins := 0, 0
 	for _, client := range []*Client{host, guestOne, guestTwo} {
 		started := receiveEvent(t, client)
 		if started.Type != "game_started" {
@@ -146,12 +146,35 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 			t.Fatalf("second event = %q, want role_assigned", role.Type)
 		}
 		data := role.Data.(map[string]any)
-		if data["role"] == "traitor" {
+		known := data["knownRoles"].(map[string]any)
+		switch data["role"] {
+		case "assassin":
 			traitors++
+			if len(known) != 1 || known[client.participant.ID] != "assassin" {
+				t.Fatalf("Assassin role markers = %#v", known)
+			}
+		case "merlin":
+			merlins++
+			if len(known) != 2 || known[client.participant.ID] != "merlin" {
+				t.Fatalf("Merlin role markers = %#v", known)
+			}
+			visibleTraitors := 0
+			for _, marker := range known {
+				if marker == "traitor" {
+					visibleTraitors++
+				}
+			}
+			if visibleTraitors != 1 {
+				t.Fatalf("Merlin sees %d traitors in %#v, want 1", visibleTraitors, known)
+			}
+		case "innocent":
+			if len(known) != 0 {
+				t.Fatalf("ordinary innocent role markers = %#v, want none", known)
+			}
 		}
 	}
-	if traitors != 1 {
-		t.Fatalf("traitor roles = %d, want 1", traitors)
+	if traitors != 1 || merlins != 1 {
+		t.Fatalf("special role counts = %d Assassins and %d Merlins, want 1 each", traitors, merlins)
 	}
 }
 
@@ -292,6 +315,76 @@ func TestGameCommandsBroadcastOnlyPublicProgress(t *testing.T) {
 		if string(encoded) == "" || containsAny(string(encoded), "innocent", "traitor", "choice") {
 			t.Fatalf("public update leaked private information: %s", encoded)
 		}
+	}
+}
+
+func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "Guest One", false),
+		testClient(room, "Guest Two", false),
+		testClient(room, "Guest Three", false),
+	}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	if err := room.startGame(clients[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	var assassin, wrongTarget *Client
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+		roleEvent := receiveEvent(t, client)
+		assignedRole := roleEvent.Data.(map[string]any)["role"].(string)
+		if assignedRole == "assassin" {
+			assassin = client
+		} else if assignedRole == "innocent" {
+			wrongTarget = client
+		}
+	}
+	if assassin == nil || wrongTarget == nil {
+		t.Fatal("game did not assign both an Assassin and a non-Merlin innocent")
+	}
+
+	room.handleCommand(roomCommand{
+		client: assassin, kind: "assassinate", playerIDs: []string{wrongTarget.participant.ID},
+	})
+	for _, client := range clients {
+		event := receiveEvent(t, client)
+		if event.Type != "game_updated" {
+			t.Fatalf("event = %q, want game_updated", event.Type)
+		}
+		encoded, err := json.Marshal(event.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var state struct {
+			Active        bool `json:"active"`
+			Assassination struct {
+				Assassin struct {
+					ID string `json:"id"`
+				} `json:"assassin"`
+				Target struct {
+					ID string `json:"id"`
+				} `json:"target"`
+				Correct bool `json:"correct"`
+			} `json:"assassination"`
+		}
+		if err := json.Unmarshal(encoded, &state); err != nil {
+			t.Fatal(err)
+		}
+		if !state.Active || state.Assassination.Correct || state.Assassination.Assassin.ID != assassin.participant.ID || state.Assassination.Target.ID != wrongTarget.participant.ID {
+			t.Fatalf("public missed assassination = %#v", state)
+		}
+	}
+
+	room.handleCommand(roomCommand{
+		client: assassin, kind: "assassinate", playerIDs: []string{wrongTarget.participant.ID},
+	})
+	if event := receiveEvent(t, assassin); event.Type != "error" {
+		t.Fatalf("second assassination event = %q, want error", event.Type)
 	}
 }
 

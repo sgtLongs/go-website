@@ -51,13 +51,33 @@ docker compose logs -f
 docker compose down
 ```
 
-Game data is stored in the `go-website_game-data` Docker volume. Do not use
+Once the local stack exists, restart its current image without rebuilding it:
+
+```bash
+make restart-local
+```
+
+After changing application code or embedded frontend assets, rebuild and
+recreate the local app instead. Docker preserves the Go module and compiler
+caches between these builds, so unchanged packages do not need to be compiled
+again:
+
+```bash
+make rebuild-local
+```
+
+Local game data is stored in the `go-website_local-game-data` Docker volume.
+It is independent from both deployed environments, so the main branch can run
+on port 8080 without opening the production database. Its Compose project is
+named `go-website-local`, keeping its containers and network separate from the
+deployment stack. Do not use
 `docker compose down --volumes` unless the data should be permanently deleted.
 
-## Deployed environments
+## Runtime environments
 
 | Git branch | Environment | URL | Compose service | Data volume |
 | --- | --- | --- | --- | --- |
+| `main` | Local | <http://192.168.68.60:8080/> | `app` | `go-website_local-game-data` |
 | `prod` | Production | <http://192.168.68.60/> | `production` | `go-website_game-data` |
 | `beta` | Beta | <http://192.168.68.60/beta/> | `beta` | `go-website_beta-game-data` |
 
@@ -66,9 +86,11 @@ so tested code can be promoted from `beta` to `prod` without mixing their
 databases.
 
 The deployment stack in `deploy/compose.yaml` contains Caddy, production, and
-beta. Only Caddy publishes host port 80; both Go services remain on the private
-Compose network at port 8080. Caddy preserves the `/beta` prefix and proxies
-WebSockets as well as HTTP. The workflow in `.github/workflows/deploy.yml`:
+beta. Only Caddy publishes host ports 80 and 443; both Go services remain on
+the private Compose network at port 8080. Caddy preserves the `/beta` prefix,
+proxies WebSockets as well as HTTP, redirects public HTTP traffic to HTTPS, and
+automatically obtains and renews the TLS certificate. The workflow in
+`.github/workflows/deploy.yml`:
 
 1. runs tests and validates the deployment configuration on a GitHub-hosted
    runner;
@@ -90,7 +112,8 @@ runner on that server (or another trusted machine on the same LAN).
 
 ### 1. Prepare the host
 
-Install Docker Engine and the Docker Compose plugin, ensure port 80 is free,
+Install Docker Engine and the Docker Compose plugin, ensure ports 80 and 443
+are free,
 ensure `flock` is available (normally provided by `util-linux`), and allow
 outbound HTTPS access to GitHub, GHCR, and Docker Hub. Reserve
 `192.168.68.60` in DHCP (or configure it statically) so the published URL does
@@ -114,14 +137,14 @@ trusted runner account and host, restrict repository write access, and never
 run pull-request code on this runner. This is especially important if the
 repository is public.
 
-The deployment stack deliberately reuses `go-website_game-data` for production
-and creates the separate `go-website_beta-game-data` volume for beta. Back up
-the production volume before the first cutover. On its first production
-deployment, the workflow detects and stops the older local Compose `app`
-container so both processes cannot open the same BoltDB file. If the cutover
-fails, it runs that previous image behind Caddy (or restarts the original
-container as a final fallback). It removes the legacy container only after a
-successful cutover or rollback.
+The deployment stack uses `go-website_game-data` for production and
+`go-website_beta-game-data` for beta. The root Compose stack uses the third,
+independent `go-website_local-game-data` volume. Back up the production volume
+before the first cutover. During migration from an older checkout, the workflow
+only stops a legacy local `app` container if it is still attached to the
+production volume. If the cutover fails, it runs that previous image behind
+Caddy (or restarts the original container as a final fallback). It removes the
+legacy container only after a successful cutover or rollback.
 
 ### 2. Register the Actions runner
 
@@ -148,6 +171,12 @@ secret.
 
 ### 3. Configure GitHub
 
+Under **Settings > Secrets and variables > Actions > Variables**, add the
+repository variable `SITE_DOMAIN`. Its value must be the public hostname only,
+without a scheme or path; for example, `game.example.com`. The deployment uses
+`localhost` when this variable is absent, which keeps local testing available
+but does not request a public certificate.
+
 Under **Settings > Environments**, create:
 
 - `beta`, allowing deployments only from `beta`;
@@ -168,7 +197,34 @@ The deployment workflow must exist on both branches. For a new installation,
 create `prod` from the commit containing `.github/workflows/deploy.yml` and
 `deploy/compose.yaml`.
 
-### 4. Bootstrap both services
+### 4. Configure Namecheap and the router
+
+In Namecheap's **Advanced DNS** page, create an `A Record` for the chosen host
+(`@` for the bare domain or, for example, `game` for `game.example.com`) and
+set its value to the router's public IPv4 address. Remove any conflicting
+parking, redirect, or `A`/`AAAA` records for that same host. A short TTL such
+as 5 minutes is useful during setup.
+
+On the internet router, forward TCP ports 80 and 443 and UDP port 443 to this
+server at `192.168.68.60`. Also allow inbound TCP 80/443 and UDP 443 in the
+server firewall, if one is enabled. TCP 80 must remain reachable because the
+certificate authority can use it to validate the hostname; TCP 443 serves
+HTTPS, and UDP 443 enables HTTP/3.
+
+The DNS record must resolve to the same address shown as the router's WAN
+address. If those addresses differ, the connection may be behind carrier-grade
+NAT (CGNAT), and ordinary Namecheap DNS plus port forwarding cannot expose the
+site; request a public IPv4 address from the ISP or use a tunnel/VPS instead.
+
+After DNS has propagated and the ports are forwarded, deploy either branch and
+verify from a device not connected to the home Wi-Fi:
+
+```bash
+curl --fail --show-error https://game.example.com/health
+curl --fail --show-error https://game.example.com/beta/health
+```
+
+### 5. Bootstrap both services
 
 Bootstrap is performed by normal branch pushes; do not manually create the
 application containers. Push `prod` first to start production and Caddy, then
@@ -222,6 +278,6 @@ For beta, use `BETA_IMAGE` and the `beta` service. A private GHCR package
 requires `docker login ghcr.io` with a token that has `read:packages` before a
 manual pull.
 
-An image rollback does not roll back BoltDB data. Keep the two volumes
+An image rollback does not roll back BoltDB data. Keep the three volumes
 independent, take a consistent backup before incompatible persistence changes,
 and never add `--volumes` to deployment shutdown or cleanup commands.
