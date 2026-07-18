@@ -303,6 +303,12 @@ body.gameplay-active #game-panel { padding: .75rem; }
 .role-confirmation.traitor .role-confirmation-title { color: #ffabab; }
 .role-confirmation.merlin .role-confirmation-title { color: #5da9ff; }
 .role-confirmation-help { margin: clamp(1.5rem, 5vh, 3rem) auto 0; font-size: clamp(1.15rem, 3vw, 1.6rem); }
+.fellow-minions { margin: clamp(1.5rem, 4vh, 2.5rem) auto 0; }
+.fellow-minions h2 { margin: 0 0 .75rem; color: #ffabab; font-size: clamp(1rem, 2.5vw, 1.3rem); letter-spacing: .1em; text-transform: uppercase; }
+.fellow-minion-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; margin: 0; }
+.fellow-minion-list li { display: flex; align-items: center; justify-content: center; gap: .5rem; min-height: 4.5rem; padding: .75rem; border: 1px solid #a96161; border-radius: .7rem; background: #210f0fcc; color: #fff; font-size: clamp(1rem, 2.5vw, 1.25rem); overflow-wrap: anywhere; }
+.fellow-minion-list .role-badge { flex: 0 0 auto; margin-left: 0; }
+.fellow-minion-list li.no-fellow-minions { color: #d8b8b8; font-size: 1rem; font-weight: 600; }
 .role-confirmation-action {
     margin: clamp(2.5rem, 10vh, 6rem) 0 0;
     color: #bac3bf;
@@ -638,12 +644,23 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     content: "";
     pointer-events: none;
 }
+.quest-team-selector h2,
 .quest-team-selector h3 {
     flex: none;
     margin: 0;
     font-size: clamp(1.25rem, 3.5vw, 2.5rem);
     text-align: center;
 }
+.assassination-view .quest-team-selector > .eyebrow,
+.assassination-view .quest-team-selector > p:not(.eyebrow) {
+    flex: none;
+    width: min(100%, 48rem);
+    margin: 0 auto;
+    text-align: center;
+}
+.assassination-view .quest-team-selector > p:not(.eyebrow) { color: #bac3bf; line-height: 1.45; }
+#waiting-for-assassin { justify-content: center; }
+#waiting-for-assassin .eyebrow { margin: 0; }
 .captain-vote-failures {
     position: absolute;
     top: 50%;

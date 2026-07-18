@@ -362,7 +362,7 @@ func (r *Room) handleCommand(command roomCommand) {
 	}
 	before := r.state()
 	var err error
-	missedAssassination := false
+	missedEarlyAssassination := false
 	roleConfirmationsChanged := false
 	proposalResultCleared := false
 	switch command.kind {
@@ -547,8 +547,8 @@ func (r *Room) handleCommand(command roomCommand) {
 		} else {
 			var correct bool
 			correct, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
-			missedAssassination = err == nil && !correct
-			if missedAssassination {
+			missedEarlyAssassination = err == nil && !correct && r.game.Active()
+			if missedEarlyAssassination {
 				roleConfirmationsChanged = !r.roleConfirmations[command.playerIDs[0]]
 				r.roleConfirmations[command.playerIDs[0]] = true
 				proposalResultCleared = r.proposalResultPending
@@ -567,10 +567,10 @@ func (r *Room) handleCommand(command roomCommand) {
 		return
 	}
 	r.broadcastEvent("game_updated", r.game.Snapshot())
-	if missedAssassination && roleConfirmationsChanged {
+	if missedEarlyAssassination && roleConfirmationsChanged {
 		r.broadcastRoleConfirmations()
 	}
-	if missedAssassination && proposalResultCleared {
+	if missedEarlyAssassination && proposalResultCleared {
 		r.broadcastProposalConfirmations()
 	}
 	if command.kind == "vote_proposal" && r.proposalResultPending {

@@ -37,6 +37,8 @@
     const roleConfirmation = byID("role-confirmation");
     const roleConfirmationTitle = byID("role-confirmation-title");
     const roleConfirmationHelp = byID("role-confirmation-help");
+    const fellowMinions = byID("fellow-minions");
+    const fellowMinionList = byID("fellow-minion-list");
     const roleWaitingView = byID("role-waiting-view");
     const gameStartingView = byID("game-starting");
     const gameStartingReady = byID("game-starting-ready");
@@ -88,6 +90,9 @@
     const confirmAssassination = byID("confirm-assassination");
     const cancelAssassination = byID("cancel-assassination");
     const assassinationStatus = byID("assassination-status");
+    const finalAssassinationForm = byID("final-assassination-form");
+    const finalAssassinationOptions = byID("final-assassination-options");
+    const assassinationSelectionError = byID("assassination-selection-error");
     const hostReceivedDialog = byID("host-received-dialog");
     const acknowledgeHost = byID("acknowledge-host");
     const hostTransferToast = byID("host-transfer-toast");
@@ -349,6 +354,20 @@
         if (!target) return;
         send({ type: "assassinate", playerIds: [target] });
         assassinationDialog.close();
+    });
+    finalAssassinationForm.addEventListener("change", () => {
+        assassinationSelectionError.hidden = true;
+    });
+    finalAssassinationForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const target = finalAssassinationForm.elements.namedItem("final-assassination-target")?.value;
+        if (!target) {
+            assassinationSelectionError.textContent = "Choose one player before assassinating.";
+            assassinationSelectionError.hidden = false;
+            return;
+        }
+        send({ type: "assassinate", playerIds: [target] });
+        finalAssassinationForm.querySelector("button[type=submit]").disabled = true;
     });
 
     function openAssassinationDialog() {
@@ -1468,7 +1487,8 @@
         roleReveal.classList.toggle("traitor", !dead && roleRevealed && role === "traitor");
         roleReveal.classList.toggle("merlin", !dead && roleRevealed && role === "merlin");
         roleReveal.classList.toggle("assassin", !dead && roleRevealed && role === "assassin");
-        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination && !dead;
+        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active
+            && gameState.phase !== "assassinating" && !gameState.assassination && !dead;
         const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active && !dead;
         roleReveal.hidden = showAssassinAction || showMerlinAction;
         assassinRoleAction.hidden = !showAssassinAction;
@@ -1486,7 +1506,7 @@
 
         roleConfirmationTitle.textContent = formatRole(role);
         roleConfirmationHelp.textContent = role === "assassin"
-            ? "Stay hidden. You may fail quests, and the Assassins share one chance to identify and assassinate Merlin."
+            ? "Stay hidden and fail quests. If the Servants complete three quests, you get one chance to identify and assassinate Merlin."
             : role === "merlin"
                 ? "Help three quests succeed. Minions of Mordred are marked for you in the player sidebar."
                 : role === "traitor"
@@ -1495,7 +1515,35 @@
         roleConfirmation.classList.toggle("traitor", role === "traitor");
         roleConfirmation.classList.toggle("merlin", role === "merlin");
         roleConfirmation.classList.toggle("assassin", role === "assassin");
+        renderFellowMinions();
         if (wasHidden) roleConfirmation.focus();
+    }
+
+    function renderFellowMinions() {
+        const isMinion = role === "traitor" || role === "assassin";
+        fellowMinions.hidden = !isMinion;
+        fellowMinionList.replaceChildren();
+        if (!isMinion) return;
+
+        const teammates = (gameState?.players || []).filter((player) =>
+            player.id !== playerID && (knownRoles[player.id] === "traitor" || knownRoles[player.id] === "assassin")
+        );
+        for (const player of teammates) {
+            const item = document.createElement("li");
+            const name = document.createElement("strong");
+            name.textContent = player.name;
+            const marker = document.createElement("span");
+            marker.className = `role-badge ${knownRoles[player.id]}`;
+            marker.textContent = formatRole(knownRoles[player.id]);
+            item.append(name, marker);
+            fellowMinionList.append(item);
+        }
+        if (teammates.length === 0) {
+            const item = document.createElement("li");
+            item.className = "no-fellow-minions";
+            item.textContent = "You have no fellow Minions this game.";
+            fellowMinionList.append(item);
+        }
     }
 
     function confirmRole() {
@@ -1638,9 +1686,42 @@
         byID("choosing-view").hidden = gameState.phase !== "choosing_team";
         byID("proposal-view").hidden = gameState.phase !== "voting_on_team";
         byID("quest-view").hidden = gameState.phase !== "playing_quest";
+        byID("assassination-view").hidden = gameState.phase !== "assassinating";
         if (gameState.phase === "choosing_team") renderChoosing();
         if (gameState.phase === "voting_on_team") renderProposal();
         if (gameState.phase === "playing_quest") renderQuest();
+        if (gameState.phase === "assassinating") renderAssassinationPhase();
+    }
+
+    function renderAssassinationPhase() {
+        const isAssassin = role === "assassin";
+        byID("assassination-controls").hidden = !isAssassin;
+        byID("waiting-for-assassin").hidden = isAssassin;
+        if (!isAssassin) return;
+
+        finalAssassinationOptions.replaceChildren();
+        assassinationSelectionError.hidden = true;
+        const submit = finalAssassinationForm.querySelector("button[type=submit]");
+        submit.disabled = false;
+        for (const player of gameState.players) {
+            if (player.id === playerID) continue;
+            const label = document.createElement("label");
+            label.className = "player-option";
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = "final-assassination-target";
+            input.value = player.id;
+            const name = document.createElement("span");
+            name.textContent = player.name;
+            label.append(input, name);
+            finalAssassinationOptions.append(label);
+        }
+        finalAssassinationOptions.classList.remove("double-stacked");
+        window.requestAnimationFrame(() => {
+            if (finalAssassinationOptions.scrollHeight > finalAssassinationOptions.clientHeight) {
+                finalAssassinationOptions.classList.add("double-stacked");
+            }
+        });
     }
 
     function renderChoosing() {
@@ -1894,14 +1975,16 @@
         endedView.classList.toggle("winning", playerWon);
         endedView.classList.toggle("losing", Boolean(role) && !playerWon);
         endedView.classList.toggle("spectating", !role);
-        byID("winner-message").textContent = innocentsWon ? "Servants of Aurther win!" : "Minions of Mordred win!";
+        byID("winner-message").textContent = innocentsWon ? "Servants of Arthur win!" : "Minions of Mordred win!";
         byID("personal-result").textContent = !role
             ? "You watched this game as a spectator."
             : playerWon ? "Your team won" : "Your team lost";
-        byID("victory-reason").textContent = gameState.assassination?.correct
-            ? `${gameState.assassination.target.name} was Merlin, so the assassination gave the Minions of Mordred victory.`
+        byID("victory-reason").textContent = gameState.assassination
+            ? gameState.assassination.correct
+                ? `${gameState.assassination.target.name} was Merlin, so the assassination gave the Minions of Mordred victory.`
+                : `${gameState.assassination.target.name} was not Merlin, so the Servants of Arthur won.`
             : innocentsWon
-                ? "The Servants of Aurther completed three successful quests."
+                ? "The Servants of Arthur completed three successful quests."
                 : "Three quests failed, giving the Minions of Mordred the victory.";
         const traitors = gameState.traitors || [];
         byID("traitor-summary-label").textContent = traitors.length === 1
@@ -1956,7 +2039,8 @@
 
     function updateAssassinationVisibility() {
         const attempt = gameState?.assassination;
-        assassinatePlayerButton.hidden = !(role === "assassin" && gameState?.active && !attempt);
+        assassinatePlayerButton.hidden = !(role === "assassin" && gameState?.active
+            && gameState.phase !== "assassinating" && !attempt);
         assassinationStatus.hidden = !attempt;
         if (!attempt) {
             assassinationStatus.replaceChildren();
@@ -1972,7 +2056,9 @@
             targetName,
             document.createTextNode(attempt.correct
                 ? ", who was Merlin."
-                : ". They were not Merlin and are now dead."),
+                : gameState.phase === "complete"
+                    ? ". They were not Merlin, so the Servants of Arthur won."
+                    : ". They were not Merlin. The game continues without them."),
         );
     }
 

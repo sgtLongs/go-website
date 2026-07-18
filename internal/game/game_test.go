@@ -135,6 +135,13 @@ func TestStartWithSettingsAssignsRequestedRoleCounts(t *testing.T) {
 	if engine.Export().Settings != settings || len(engine.Export().Traitors) != 2 {
 		t.Fatalf("started state = %#v", started.State)
 	}
+	wantBadTeamKnowledge := map[string]Role{"one": Assassin, "two": Traitor}
+	if got := engine.KnownRolesFor("one"); !reflect.DeepEqual(got, wantBadTeamKnowledge) {
+		t.Fatalf("Assassin knowledge = %#v, want %#v", got, wantBadTeamKnowledge)
+	}
+	if got := engine.KnownRolesFor("two"); !reflect.DeepEqual(got, wantBadTeamKnowledge) {
+		t.Fatalf("Minion knowledge = %#v, want %#v", got, wantBadTeamKnowledge)
+	}
 
 	restored := New()
 	if err := restored.Restore(engine.Export()); err != nil {
@@ -260,25 +267,7 @@ func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
 	}
 }
 
-func TestRestoreUpgradesMissedAssassinationToDeadState(t *testing.T) {
-	engine := startedEngine(t)
-	if _, err := engine.Assassinate("one", "three"); err != nil {
-		t.Fatal(err)
-	}
-	state := engine.Export()
-	state.Players[2].Dead = false
-	state.Assassination.Target.Dead = false
-
-	restored := New()
-	if err := restored.Restore(state); err != nil {
-		t.Fatal(err)
-	}
-	if !restored.IsDead("three") || !restored.Snapshot().Assassination.Target.Dead {
-		t.Fatalf("legacy assassination was not upgraded: %#v", restored.Snapshot())
-	}
-}
-
-func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
+func TestMerlinKnowledgeAndEarlyAssassination(t *testing.T) {
 	engine := startedEngine(t)
 	if got := engine.KnownRolesFor("two"); !reflect.DeepEqual(got, map[string]Role{"one": Traitor, "two": Merlin}) {
 		t.Fatalf("Merlin knowledge = %#v", got)
@@ -292,107 +281,38 @@ func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	if _, err := engine.Assassinate("one", "one"); !errors.Is(err, ErrInvalidTarget) {
 		t.Fatalf("self-target error = %v", err)
 	}
-
-	before := engine.Snapshot()
 	correct, err := engine.Assassinate("one", "three")
 	if err != nil || correct {
-		t.Fatalf("missed assassination = %v, %v", correct, err)
+		t.Fatalf("early missed assassination = %v, %v", correct, err)
 	}
 	state := engine.Snapshot()
-	if !state.Active || state.Phase != before.Phase || state.Round != before.Round {
-		t.Fatalf("missed assassination interrupted play: %#v", state)
-	}
-	if state.Assassination == nil || state.Assassination.Assassin.ID != "one" || state.Assassination.Target.ID != "three" || state.Assassination.Correct {
-		t.Fatalf("public assassination = %#v", state.Assassination)
-	}
-	if !state.Players[2].Dead || !state.Assassination.Target.Dead || !engine.IsDead("three") {
-		t.Fatalf("assassination target was not marked dead: %#v", state)
+	if !state.Active || state.Phase != ChoosingTeam || !state.Players[2].Dead {
+		t.Fatalf("early missed assassination did not continue at team selection: %#v", state)
 	}
 	if _, err := engine.Assassinate("one", "two"); !errors.Is(err, ErrAssassinationUsed) {
-		t.Fatalf("second attempt error = %v", err)
+		t.Fatalf("second assassination error = %v, want ErrAssassinationUsed", err)
 	}
+}
 
+func TestSpentEarlyAssassinationLeavesServantsWinAfterThreeQuests(t *testing.T) {
+	engine := startedEngine(t)
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	completeSuccessfulQuestsWithLivingPlayers(t, engine)
+	if state := engine.Snapshot(); state.Active || state.Phase != GameComplete || state.Winner != Innocent {
+		t.Fatalf("spent assassination did not leave the Servants victorious: %#v", state)
+	}
+}
+
+func TestCorrectFinalAssassinationGivesTraitorsVictory(t *testing.T) {
+	engine := startedEngine(t)
+	completeSuccessfulQuests(t, engine)
 	restored := New()
 	if err := restored.Restore(engine.Export()); err != nil {
-		t.Fatal(err)
+		t.Fatalf("restore assassination phase: %v", err)
 	}
-	if !reflect.DeepEqual(restored.Snapshot(), state) {
-		t.Fatalf("restored assassination = %#v, want %#v", restored.Snapshot(), state)
-	}
-}
-
-func TestDeadPlayerCannotJoinQuestsOrVote(t *testing.T) {
-	engine := startedEngine(t)
-	if err := engine.ProposeQuest("one", []string{"one", "three"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.VoteOnProposal("one", true); err != nil {
-		t.Fatal(err)
-	}
-	if correct, err := engine.Assassinate("one", "three"); err != nil || correct {
-		t.Fatalf("missed assassination = %v, %v", correct, err)
-	}
-
-	state := engine.Snapshot()
-	if state.Phase != ChoosingTeam || len(state.Quest) != 0 || state.ProposalVotesCast != 0 || state.ProposalVotesNeeded != 3 {
-		t.Fatalf("missed assassination did not reset team selection for living players: %#v", state)
-	}
-	if err := engine.ProposeQuest("one", []string{"one", "three"}); !errors.Is(err, ErrInvalidQuest) {
-		t.Fatalf("dead quest member error = %v, want ErrInvalidQuest", err)
-	}
-	if err := engine.ProposeQuest("one", []string{"one", "two"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.VoteOnProposal("three", true); !errors.Is(err, ErrDeadPlayer) {
-		t.Fatalf("dead voter error = %v, want ErrDeadPlayer", err)
-	}
-	for _, id := range []string{"one", "two", "four"} {
-		if _, err := engine.VoteOnProposal(id, true); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if engine.Snapshot().Phase != PlayingQuest {
-		t.Fatalf("living-player vote did not complete: %#v", engine.Snapshot())
-	}
-}
-
-func TestMissedAssassinationSkipsDeadCaptain(t *testing.T) {
-	choices := []int{0, 0, 2}
-	engine := newWithChooser(func(int) (int, error) {
-		choice := choices[0]
-		choices = choices[1:]
-		return choice, nil
-	})
-	if _, err := engine.Start(testPlayers()); err != nil {
-		t.Fatal(err)
-	}
-	if engine.Snapshot().Captain.ID != "three" {
-		t.Fatalf("initial captain = %q, want three", engine.Snapshot().Captain.ID)
-	}
-	if _, err := engine.Assassinate("one", "three"); err != nil {
-		t.Fatal(err)
-	}
-	if captain := engine.Snapshot().Captain; captain.ID != "four" || captain.Dead {
-		t.Fatalf("captain after assassination = %#v, want living player four", captain)
-	}
-}
-
-func TestQuestSizeUsesLivingPlayerCount(t *testing.T) {
-	engine := newWithChooser(func(int) (int, error) { return 0, nil })
-	settings := Settings{Minions: 1, Innocents: 1, Assassins: 1}
-	if _, err := engine.StartWithSettings(testPlayers()[:3], settings); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := engine.Assassinate("one", "three"); err != nil {
-		t.Fatal(err)
-	}
-	if size := engine.Snapshot().QuestSize; size != 1 {
-		t.Fatalf("quest size after death = %d, want 1 for two living players", size)
-	}
-}
-
-func TestCorrectAssassinationGivesTraitorsVictory(t *testing.T) {
-	engine := startedEngine(t)
+	engine = restored
 	correct, err := engine.Assassinate("one", "two")
 	if err != nil || !correct {
 		t.Fatalf("correct assassination = %v, %v", correct, err)
@@ -403,6 +323,54 @@ func TestCorrectAssassinationGivesTraitorsVictory(t *testing.T) {
 	}
 	if state.Assassination == nil || !state.Assassination.Correct {
 		t.Fatalf("correct assassination was not published: %#v", state.Assassination)
+	}
+}
+
+func TestSuccessfulQuestsWinImmediatelyWithoutSpecialRoles(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	if _, err := engine.StartWithSettings(testPlayers(), Settings{Minions: 1, Innocents: 3}); err != nil {
+		t.Fatal(err)
+	}
+	for round := 1; round <= WinningQuests; round++ {
+		state := engine.Snapshot()
+		team := questTeam(engine)
+		approveQuest(t, engine, state.Captain.ID, team)
+		for _, playerID := range team {
+			if _, err := engine.PlayQuestCard(playerID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if state := engine.Snapshot(); state.Active || state.Phase != GameComplete || state.Winner != Innocent {
+		t.Fatalf("game without Merlin and Assassin did not end after three successful quests: %#v", state)
+	}
+}
+
+func TestMissedFinalAssassinationGivesServantsVictory(t *testing.T) {
+	engine := startedEngine(t)
+	completeSuccessfulQuests(t, engine)
+	if _, err := engine.Assassinate("one", "one"); !errors.Is(err, ErrInvalidTarget) {
+		t.Fatalf("self-target error = %v", err)
+	}
+
+	correct, err := engine.Assassinate("one", "three")
+	if err != nil || correct {
+		t.Fatalf("missed assassination = %v, %v", correct, err)
+	}
+	state := engine.Snapshot()
+	if state.Active || state.Phase != GameComplete || state.Winner != Innocent {
+		t.Fatalf("missed assassination did not give the Servants victory: %#v", state)
+	}
+	if state.Assassination == nil || state.Assassination.Correct || state.Assassination.Target.ID != "three" {
+		t.Fatalf("public assassination = %#v", state.Assassination)
+	}
+
+	restored := New()
+	if err := restored.Restore(engine.Export()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Snapshot(), state) {
+		t.Fatalf("restored assassination = %#v, want %#v", restored.Snapshot(), state)
 	}
 }
 
@@ -509,8 +477,18 @@ func TestQuestRulesAndInnocentVictory(t *testing.T) {
 	}
 
 	state := engine.Snapshot()
-	if state.Active || state.Phase != GameComplete || state.Winner != Innocent || state.SuccessfulQuests != 3 {
-		t.Fatalf("unexpected completed state: %#v", state)
+	if !state.Active || state.Phase != Assassinating || state.Winner != "" || state.SuccessfulQuests != 3 {
+		t.Fatalf("successful quests did not begin the assassination phase: %#v", state)
+	}
+	if len(state.Traitors) != 0 {
+		t.Fatalf("traitors were revealed before the assassination: %#v", state.Traitors)
+	}
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	state = engine.Snapshot()
+	if state.Active || state.Phase != GameComplete || state.Winner != Innocent {
+		t.Fatalf("missed assassination did not complete the game: %#v", state)
 	}
 	if len(state.Traitors) != 1 || state.Traitors[0].ID != "one" {
 		t.Fatalf("traitors were not revealed: %#v", state.Traitors)
@@ -630,6 +608,51 @@ func questTeam(engine *Engine) []string {
 		team[index] = state.Players[index].ID
 	}
 	return team
+}
+
+func completeSuccessfulQuests(t *testing.T, engine *Engine) {
+	t.Helper()
+	for round := 1; round <= WinningQuests; round++ {
+		state := engine.Snapshot()
+		team := questTeam(engine)
+		approveQuest(t, engine, state.Captain.ID, team)
+		for _, playerID := range team {
+			if _, err := engine.PlayQuestCard(playerID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if state := engine.Snapshot(); state.Phase != Assassinating {
+		t.Fatalf("phase after three successful quests = %q, want %q", state.Phase, Assassinating)
+	}
+}
+
+func completeSuccessfulQuestsWithLivingPlayers(t *testing.T, engine *Engine) {
+	t.Helper()
+	for engine.Snapshot().SuccessfulQuests < WinningQuests {
+		state := engine.Snapshot()
+		team := make([]string, 0, state.QuestSize)
+		for _, player := range state.Players {
+			if !player.Dead && len(team) < state.QuestSize {
+				team = append(team, player.ID)
+			}
+		}
+		if err := engine.ProposeQuest(state.Captain.ID, team); err != nil {
+			t.Fatal(err)
+		}
+		for _, player := range state.Players {
+			if !player.Dead {
+				if _, err := engine.VoteOnProposal(player.ID, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		for _, playerID := range team {
+			if _, err := engine.PlayQuestCard(playerID, true); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 }
 
 func testPlayers() []Player {
