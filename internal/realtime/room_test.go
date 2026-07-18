@@ -757,7 +757,7 @@ func TestGameCommandsBroadcastOnlyPublicProgress(t *testing.T) {
 	}
 }
 
-func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
+func TestEarlyMissedAssassinationContinuesGame(t *testing.T) {
 	room := newRoom("game-room", nil)
 	clients := []*Client{
 		testClient(room, "Host", true),
@@ -772,7 +772,7 @@ func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var assassin, wrongTarget *Client
+	var assassin, target *Client
 	for _, client := range clients {
 		_ = receiveEvent(t, client)
 		roleEvent := receiveEvent(t, client)
@@ -780,53 +780,39 @@ func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
 		if assignedRole == "assassin" {
 			assassin = client
 		} else if assignedRole == "innocent" {
-			wrongTarget = client
+			target = client
 		}
 	}
-	if assassin == nil || wrongTarget == nil {
-		t.Fatal("game did not assign both an Assassin and a non-Merlin innocent")
-	}
-
-	room.handleCommand(roomCommand{
-		client: assassin, kind: "assassinate", playerIDs: []string{wrongTarget.participant.ID},
-	})
-	for _, client := range clients {
-		event := receiveEvent(t, client)
-		if event.Type != "game_updated" {
-			t.Fatalf("event = %q, want game_updated", event.Type)
-		}
-		encoded, err := json.Marshal(event.Data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var state struct {
-			Active        bool `json:"active"`
-			Assassination struct {
-				Assassin struct {
-					ID string `json:"id"`
-				} `json:"assassin"`
-				Target struct {
-					ID string `json:"id"`
-				} `json:"target"`
-				Correct bool `json:"correct"`
-			} `json:"assassination"`
-		}
-		if err := json.Unmarshal(encoded, &state); err != nil {
-			t.Fatal(err)
-		}
-		if !state.Active || state.Assassination.Correct || state.Assassination.Assassin.ID != assassin.participant.ID || state.Assassination.Target.ID != wrongTarget.participant.ID {
-			t.Fatalf("public missed assassination = %#v", state)
-		}
-		if confirmationEvent := receiveEvent(t, client); confirmationEvent.Type != "role_confirmations_updated" {
-			t.Fatalf("event = %q, want role_confirmations_updated", confirmationEvent.Type)
-		}
+	if assassin == nil || target == nil {
+		t.Fatal("game did not assign an Assassin and a target")
 	}
 
 	room.handleCommand(roomCommand{
-		client: assassin, kind: "assassinate", playerIDs: []string{wrongTarget.participant.ID},
+		client: assassin, kind: "assassinate", playerIDs: []string{target.participant.ID},
 	})
-	if event := receiveEvent(t, assassin); event.Type != "error" {
-		t.Fatalf("second assassination event = %q, want error", event.Type)
+	event := receiveEvent(t, assassin)
+	if event.Type != "game_updated" {
+		t.Fatalf("early assassination event = %q, want game_updated", event.Type)
+	}
+	encoded, err := json.Marshal(event.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state struct {
+		Active        bool   `json:"active"`
+		Phase         string `json:"phase"`
+		Assassination struct {
+			Correct bool `json:"correct"`
+		} `json:"assassination"`
+	}
+	if err := json.Unmarshal(encoded, &state); err != nil {
+		t.Fatal(err)
+	}
+	if !state.Active || state.Phase != "choosing_team" || state.Assassination.Correct {
+		t.Fatalf("early missed assassination state = %#v", state)
+	}
+	if event := receiveEvent(t, assassin); event.Type != "role_confirmations_updated" {
+		t.Fatalf("confirmation event = %q, want role_confirmations_updated", event.Type)
 	}
 }
 

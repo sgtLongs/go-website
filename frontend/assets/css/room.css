@@ -644,12 +644,23 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     content: "";
     pointer-events: none;
 }
+.quest-team-selector h2,
 .quest-team-selector h3 {
     flex: none;
     margin: 0;
     font-size: clamp(1.25rem, 3.5vw, 2.5rem);
     text-align: center;
 }
+.assassination-view .quest-team-selector > .eyebrow,
+.assassination-view .quest-team-selector > p:not(.eyebrow) {
+    flex: none;
+    width: min(100%, 48rem);
+    margin: 0 auto;
+    text-align: center;
+}
+.assassination-view .quest-team-selector > p:not(.eyebrow) { color: #bac3bf; line-height: 1.45; }
+#waiting-for-assassin { justify-content: center; }
+#waiting-for-assassin .eyebrow { margin: 0; }
 .captain-vote-failures {
     position: absolute;
     top: 50%;
