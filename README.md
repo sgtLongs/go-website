@@ -67,7 +67,7 @@ make rebuild-local
 ```
 
 Local game data is stored in the `go-website_local-game-data` Docker volume.
-It is independent from both deployed environments, so the main branch can run
+It is independent from every deployed environment, so the main branch can run
 on port 8080 without opening the production database. Its Compose project is
 named `go-website-local`, keeping its containers and network separate from the
 deployment stack. Do not use
@@ -77,19 +77,21 @@ deployment stack. Do not use
 
 | Git branch | Environment | URL | Compose service | Data volume |
 | --- | --- | --- | --- | --- |
-| `main` | Local | <http://192.168.68.60:8080/> | `app` | `go-website_local-game-data` |
-| `prod` | Production | <http://192.168.68.60/> | `production` | `go-website_game-data` |
-| `beta` | Beta | <http://192.168.68.60/beta/> | `beta` | `go-website_beta-game-data` |
+| `main` | Development | <https://tinkersplayground.com/dev/> | `dev` | `go-website_dev-game-data` |
+| `beta` | Beta | <https://tinkersplayground.com/beta/> | `beta` | `go-website_beta-game-data` |
+| `prod` | Production | <https://tinkersplayground.com/> | `production` | `go-website_game-data` |
+| any checked-out branch | Laptop/PC local | <http://localhost:8080/> | `app` | `go-website_local-game-data` |
 
-A push to `beta` updates only beta. A push to `prod` updates only production,
-so tested code can be promoted from `beta` to `prod` without mixing their
-databases.
+A push to `main`, `beta`, or `prod` updates only its matching environment.
+This allows changes to move from development to beta to production without
+mixing their databases.
 
-The deployment stack in `deploy/compose.yaml` contains Caddy, production, and
-beta. Only Caddy publishes host ports 80 and 443; both Go services remain on
-the private Compose network at port 8080. Caddy preserves the `/beta` prefix,
-proxies WebSockets as well as HTTP, redirects public HTTP traffic to HTTPS, and
-automatically obtains and renews the TLS certificate. The workflow in
+The deployment stack in `deploy/compose.yaml` contains Caddy, development,
+beta, and production. Only Caddy publishes host ports 80 and 443; the three Go
+services remain on the private Compose network at port 8080. Caddy preserves
+the `/dev` and `/beta` prefixes, proxies WebSockets as well as HTTP, redirects
+public HTTP traffic to HTTPS, and automatically obtains and renews the TLS
+certificate. The workflow in
 `.github/workflows/deploy.yml`:
 
 1. runs tests and validates the deployment configuration on a GitHub-hosted
@@ -101,8 +103,79 @@ automatically obtains and renews the TLS certificate. The workflow in
    page, static assets, and lobby API.
 
 Actions serializes deployments for each branch and never cancels one in
-progress. A host-side `flock` lock also prevents production and beta Compose
+progress. A host-side `flock` lock also prevents deployment Compose
 changes from overlapping, even if multiple matching runners are registered.
+
+## Laptop setup and outside-LAN workflow
+
+This workflow does not require remote desktop, an open SSH port, or direct
+access from the laptop to the PC. GitHub is the relay: the laptop pushes code
+to GitHub, and the self-hosted Actions runner on the PC makes an outbound
+connection to receive and deploy the job.
+
+### 1. Install the laptop tools
+
+Install Git, the Go version declared in `go.mod`, and an editor. Docker Desktop
+is optional but recommended because it reproduces the container used on the
+PC. Authenticate Git to GitHub using GitHub CLI (`gh auth login`) or the
+operating system's Git credential manager. Never put a GitHub token in the
+repository or a remote URL.
+
+Clone the repository and select `main`:
+
+```bash
+git clone https://github.com/sgtLongs/go-website.git
+cd go-website
+git switch main
+git pull --ff-only origin main
+```
+
+### 2. Develop and test locally
+
+With Go installed:
+
+```bash
+go test ./...
+go run ./cmd/server
+```
+
+Open <http://localhost:8080/>. Alternatively, use Docker:
+
+```bash
+docker compose up --build
+```
+
+Stop the foreground server with `Ctrl+C`; stop Compose with
+`docker compose down`. Local data stays on the laptop in its own Docker volume.
+
+### 3. Deploy `main` to `/dev`
+
+Commit only after the local tests pass, then push `main`:
+
+```bash
+git status
+git add <files-you-changed>
+git commit -m "describe the change"
+git push origin main
+```
+
+In GitHub, open **Actions > Test, publish, and deploy** and watch the run. The
+GitHub-hosted job tests and builds the image; the PC's runner deploys only the
+`dev` service. When both jobs are green, verify:
+
+```bash
+curl --fail --show-error https://tinkersplayground.com/dev/health
+```
+
+Then open <https://tinkersplayground.com/dev/>. A failed health or smoke check
+automatically rolls `dev` back to its previously running image. Promoting a
+tested change to `beta` or `prod` should be done with a pull request or merge;
+do not point multiple services at the same data volume.
+
+If the deployment job stays queued, the PC or its Actions runner is offline.
+The website can remain online in that state, but new code cannot deploy until
+the PC and runner regain internet access. If the build job fails, fix the
+reported test/build error on the laptop and push another commit.
 
 ## One-time server setup
 
@@ -137,9 +210,10 @@ trusted runner account and host, restrict repository write access, and never
 run pull-request code on this runner. This is especially important if the
 repository is public.
 
-The deployment stack uses `go-website_game-data` for production and
-`go-website_beta-game-data` for beta. The root Compose stack uses the third,
-independent `go-website_local-game-data` volume. Back up the production volume
+The deployment stack uses `go-website_game-data` for production,
+`go-website_beta-game-data` for beta, and `go-website_dev-game-data` for
+development. The root Compose stack uses another independent
+`go-website_local-game-data` volume. Back up the production volume
 before the first cutover. During migration from an older checkout, the workflow
 only stops a legacy local `app` container if it is still attached to the
 production volume. If the cutover fails, it runs that previous image behind
@@ -173,12 +247,13 @@ secret.
 
 Under **Settings > Secrets and variables > Actions > Variables**, add the
 repository variable `SITE_DOMAIN`. Its value must be the public hostname only,
-without a scheme or path; for example, `game.example.com`. The deployment uses
-`localhost` when this variable is absent, which keeps local testing available
-but does not request a public certificate.
+without a scheme or path; for this site, use `tinkersplayground.com`. The
+deployment uses `localhost` when this variable is absent, which keeps local
+testing available but does not request a public certificate.
 
 Under **Settings > Environments**, create:
 
+- `dev`, allowing deployments only from `main`;
 - `beta`, allowing deployments only from `beta`;
 - `production`, allowing deployments only from `prod`.
 
@@ -188,14 +263,14 @@ while deploying. If organization policy overrides token permissions, allow
 those package permissions for this repository. Leave required environment
 reviewers disabled for fully automatic deployment.
 
-Protect both branches against deletion and force-pushes. For production,
-prefer requiring a pull request from `beta`, review changes to workflow and
-deployment files, and restrict merging to trusted maintainers. A merge or
-allowed push to `prod` still deploys automatically.
+Protect all three deployment branches against deletion and force-pushes. For
+production, prefer requiring a pull request from `beta`, review changes to
+workflow and deployment files, and restrict merging to trusted maintainers. A
+merge or allowed push to `prod` still deploys automatically.
 
-The deployment workflow must exist on both branches. For a new installation,
-create `prod` from the commit containing `.github/workflows/deploy.yml` and
-`deploy/compose.yaml`.
+The deployment workflow must exist on all three branches. For a new
+installation, create `beta` and `prod` from the commit containing
+`.github/workflows/deploy.yml` and `deploy/compose.yaml`.
 
 ### 4. Configure Namecheap and the router
 
@@ -216,46 +291,50 @@ address. If those addresses differ, the connection may be behind carrier-grade
 NAT (CGNAT), and ordinary Namecheap DNS plus port forwarding cannot expose the
 site; request a public IPv4 address from the ISP or use a tunnel/VPS instead.
 
-After DNS has propagated and the ports are forwarded, deploy either branch and
+After DNS has propagated and the ports are forwarded, deploy the branches and
 verify from a device not connected to the home Wi-Fi:
 
 ```bash
-curl --fail --show-error https://game.example.com/health
-curl --fail --show-error https://game.example.com/beta/health
+curl --fail --show-error https://tinkersplayground.com/health
+curl --fail --show-error https://tinkersplayground.com/beta/health
+curl --fail --show-error https://tinkersplayground.com/dev/health
 ```
 
-### 5. Bootstrap both services
+### 5. Bootstrap all services
 
 Bootstrap is performed by normal branch pushes; do not manually create the
 application containers. Push `prod` first to start production and Caddy, then
-push `beta` to start beta:
+push `beta` and `main`:
 
 ```bash
 git branch prod
 git push -u origin prod
 git push origin beta
+git push origin main
 ```
 
 The first branch deployed starts Caddy and its selected service. Until the
-other branch has deployed, that other route can return `502`. Later pushes
+other branches have deployed, their routes can return `502`. Later pushes
 replace only their matching service.
 
 ## Operations
 
-Check both environments after bootstrap or deployment:
+Check all environments after bootstrap or deployment:
 
 ```bash
 curl --fail http://192.168.68.60/health
 curl --fail http://192.168.68.60/
 curl --fail http://192.168.68.60/beta/health
 curl --fail http://192.168.68.60/beta/
+curl --fail http://192.168.68.60/dev/health
+curl --fail http://192.168.68.60/dev/
 ```
 
 Inspect the single deployment stack with:
 
 ```bash
 docker compose --project-name go-website --file deploy/compose.yaml ps
-docker compose --project-name go-website --file deploy/compose.yaml logs -f proxy production beta
+docker compose --project-name go-website --file deploy/compose.yaml logs -f proxy production beta dev
 ```
 
 The workflow records the currently running image before an update. If the new
@@ -274,10 +353,11 @@ docker compose --project-name go-website --file deploy/compose.yaml \
 unset PRODUCTION_IMAGE
 ```
 
-For beta, use `BETA_IMAGE` and the `beta` service. A private GHCR package
+For beta, use `BETA_IMAGE` and the `beta` service; for development, use
+`DEV_IMAGE` and `dev`. A private GHCR package
 requires `docker login ghcr.io` with a token that has `read:packages` before a
 manual pull.
 
-An image rollback does not roll back BoltDB data. Keep the three volumes
+An image rollback does not roll back BoltDB data. Keep all data volumes
 independent, take a consistent backup before incompatible persistence changes,
 and never add `--volumes` to deployment shutdown or cleanup commands.

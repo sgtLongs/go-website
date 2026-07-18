@@ -3,6 +3,7 @@ name: Test, publish, and deploy
 on:
   push:
     branches:
+      - main
       - beta
       - prod
 
@@ -53,6 +54,14 @@ jobs:
           echo "image=ghcr.io/${repository}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
           case "$GITHUB_REF_NAME" in
+            main)
+              echo "api_path=/dev/api/lobbies" >> "$GITHUB_OUTPUT"
+              echo "asset_path=/dev/assets/css/lobbies.css" >> "$GITHUB_OUTPUT"
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              echo "service=dev" >> "$GITHUB_OUTPUT"
+              echo "health_path=/dev/health" >> "$GITHUB_OUTPUT"
+              echo "page_path=/dev/" >> "$GITHUB_OUTPUT"
+              ;;
             beta)
               echo "api_path=/beta/api/lobbies" >> "$GITHUB_OUTPUT"
               echo "asset_path=/beta/assets/css/lobbies.css" >> "$GITHUB_OUTPUT"
@@ -78,6 +87,7 @@ jobs:
       - name: Validate deployment configuration
         env:
           BETA_IMAGE: ${{ steps.target.outputs.image }}
+          DEV_IMAGE: ${{ steps.target.outputs.image }}
           PRODUCTION_IMAGE: ${{ steps.target.outputs.image }}
         run: docker compose --file deploy/compose.yaml config --quiet
 
@@ -160,7 +170,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Keep production and beta changes from overlapping even if more
+          # Keep environment changes from overlapping even if more
           # than one matching self-hosted runner is registered.
           exec 9>/tmp/go-website-deploy.lock
           if ! flock --wait 600 9; then
@@ -171,6 +181,10 @@ jobs:
           compose=(docker compose --project-name go-website --file deploy/compose.yaml)
 
           case "$SERVICE" in
+            dev)
+              export DEV_IMAGE="$DEPLOY_IMAGE"
+              image_variable=DEV_IMAGE
+              ;;
             beta)
               export BETA_IMAGE="$DEPLOY_IMAGE"
               image_variable=BETA_IMAGE

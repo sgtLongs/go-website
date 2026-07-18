@@ -3,19 +3,22 @@ DEPLOY_COMPOSE := $(COMPOSE) -f deploy/compose.yaml
 LOCAL_PORT ?= 8080
 PRODUCTION_VOLUME := go-website_game-data
 BETA_VOLUME := go-website_beta-game-data
+DEV_VOLUME := go-website_dev-game-data
 LOCAL_VOLUME := go-website_local-game-data
 
 .DEFAULT_GOAL := help
 
-.PHONY: help status restart-local rebuild-local restart-production reset-local reset-production reset-beta
+.PHONY: help status restart-local rebuild-local restart-dev restart-production reset-local reset-dev reset-production reset-beta
 
 help:
 	@echo "Available commands:"
 	@echo "  make status              Show local and deployed containers"
 	@echo "  make restart-local       Restart the existing port-8080 local app"
 	@echo "  make rebuild-local       Rebuild and recreate the port-8080 local app"
+	@echo "  make restart-dev         Restart the deployed /dev service"
 	@echo "  make restart-production  Restart the production service"
 	@echo "  make reset-local         Erase local data and restart local"
+	@echo "  make reset-dev           Erase development data and restart dev"
 	@echo "  make reset-production    Erase production data and restart production"
 	@echo "  make reset-beta          Erase beta data and restart beta"
 
@@ -31,6 +34,9 @@ restart-local:
 
 rebuild-local:
 	@$(COMPOSE) up --build --detach --no-deps app
+
+restart-dev:
+	@$(DEPLOY_COMPOSE) restart dev
 
 restart-production:
 	@$(DEPLOY_COMPOSE) restart production
@@ -49,6 +55,15 @@ reset-local:
 	@docker run --rm -v $(LOCAL_VOLUME):/data alpine rm -f /data/game.db
 	@$(COMPOSE) up --build --detach --no-deps app
 	@echo "Local database cleared and local restarted."
+
+reset-dev:
+	@printf "This permanently erases DEVELOPMENT game data. Type 'reset-dev' to continue: "; \
+	read answer; \
+	[ "$$answer" = "reset-dev" ]
+	@$(DEPLOY_COMPOSE) stop dev
+	@docker run --rm -v $(DEV_VOLUME):/data alpine rm -f /data/game.db
+	@$(DEPLOY_COMPOSE) start dev
+	@echo "Development database cleared and development restarted."
 
 reset-production:
 	@printf "This permanently erases PRODUCTION game data. Type 'reset-production' to continue: "; \
