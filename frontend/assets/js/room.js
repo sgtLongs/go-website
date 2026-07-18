@@ -49,6 +49,7 @@
     const gameSettingsTotal = byID("game-settings-total");
     const gameSettingsLobbyWarning = byID("game-settings-lobby-warning");
     const gameSettingsError = byID("game-settings-error");
+    const recommendedSettingsInput = byID("game-settings-recommended");
     const saveGameSettings = byID("save-game-settings");
     const cancelGameSettings = byID("cancel-game-settings");
     const mobileRoleCountControls = window.matchMedia("(max-width: 480px)");
@@ -130,7 +131,7 @@
     let gameStartPlayers = [];
     let gameStarting = false;
     let gameStartConfirmed = false;
-    let gameSettings = {minions: 0, innocents: 0, merlins: 1, assassins: 1};
+    let gameSettings = {recommendedSettings: true, minions: 0, innocents: 0, merlins: 1, assassins: 1};
     let gameStartCountdownActive = false;
     let gameStartCountdownSeconds = 0;
     let gameStartCountdownTimer;
@@ -215,6 +216,18 @@
         });
     }
     gameSettingsForm.addEventListener("input", (event) => {
+        if (event.target === recommendedSettingsInput && recommendedSettingsInput.checked) {
+            const playerCount = connectedGameStartPlayerCount();
+            const defaults = defaultGameSettings(playerCount);
+            for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+                gameSettingsForm.elements.namedItem(name).value = String(defaults[name]);
+            }
+            for (let round = 1; round <= 5; round += 1) {
+                gameSettingsForm.elements.namedItem(`quest-size-${round}`).value = String(defaults.questSizes[round - 1]);
+                gameSettingsForm.elements.namedItem(`quest-fails-${round}`).value = String(defaults.questFailThresholds[round - 1]);
+            }
+            syncQuestInputLimits(false);
+        }
         if (event.target.name?.startsWith("quest-size-")) syncQuestInputLimits(true);
         renderGameSettingsValidation();
     });
@@ -1155,6 +1168,7 @@
         if (!isHost) return;
         const playerCount = connectedGameStartPlayerCount();
         const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        recommendedSettingsInput.checked = settings.recommendedSettings;
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             const input = gameSettingsForm.elements.namedItem(name);
             input.value = String(settings[name] ?? 0);
@@ -1188,6 +1202,7 @@
         if (!gameSettingsDialog.open) return;
         const playerCount = connectedGameStartPlayerCount();
         const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        recommendedSettingsInput.checked = settings.recommendedSettings;
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             gameSettingsForm.elements.namedItem(name).value = String(settings[name] ?? 0);
         }
@@ -1203,7 +1218,7 @@
     }
 
     function readGameSettingsForm() {
-        const settings = {questSizes: [], questFailThresholds: []};
+        const settings = {recommendedSettings: recommendedSettingsInput.checked, questSizes: [], questFailThresholds: []};
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             settings[name] = Number(gameSettingsForm.elements.namedItem(name).value);
         }
@@ -1320,21 +1335,28 @@
     }
 
     function defaultGameSettings(playerCount) {
-        const evilPlayers = playerCount >= 5 ? Math.min(4, Math.ceil(playerCount / 3)) : (playerCount >= 2 ? 1 : 0);
-        const specialRoles = playerCount >= 2 ? 2 : 0;
-        const roles = {
-            minions: Math.max(0, evilPlayers - (specialRoles ? 1 : 0)),
-            innocents: Math.max(0, playerCount - evilPlayers - (specialRoles ? 1 : 0)),
-            merlins: specialRoles ? 1 : 0,
-            assassins: specialRoles ? 1 : 0,
-        };
+        let roles;
+        if (playerCount < 2) {
+            roles = {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
+        } else if (playerCount <= 3) {
+            roles = {minions: 1, innocents: playerCount - 1, merlins: 0, assassins: 0};
+        } else {
+            const evilPlayers = playerCount >= 5 ? Math.min(4, Math.ceil(playerCount / 3)) : 1;
+            roles = {
+                minions: Math.max(0, evilPlayers - 1),
+                innocents: Math.max(0, playerCount - evilPlayers - 1),
+                merlins: 1,
+                assassins: 1,
+            };
+        }
         const questFailThresholds = [1, 1, 1, playerCount >= 7 ? 2 : 1, 1];
-        return {...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds};
+        return {recommendedSettings: true, ...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds};
     }
 
     function normalizeGameSettings(settings, playerCount) {
         const defaults = defaultGameSettings(playerCount);
         return {
+            recommendedSettings: Boolean(settings.recommendedSettings ?? defaults.recommendedSettings),
             minions: Number(settings.minions ?? defaults.minions),
             innocents: Number(settings.innocents ?? defaults.innocents),
             merlins: Number(settings.merlins ?? defaults.merlins),
@@ -1816,11 +1838,14 @@
             const failuresNeeded = gameState.questFailThresholds?.[round - 1]
                 || result?.failsNeeded
                 || (round === gameState.round ? gameState.questFailsNeeded : 1);
-            const failureThreshold = document.createElement("span");
-            failureThreshold.className = "quest-card-fail-threshold";
-            failureThreshold.textContent = `${failuresNeeded} fail${failuresNeeded === 1 ? "" : "s"} needed`;
 
-            card.append(roundLabel, iconElement, statusElement, teamSize, failureThreshold);
+            card.append(roundLabel, iconElement, statusElement, teamSize);
+            if (failuresNeeded > 1) {
+                const failureThreshold = document.createElement("span");
+                failureThreshold.className = "quest-card-fail-threshold";
+                failureThreshold.textContent = `${failuresNeeded} fails needed`;
+                card.append(failureThreshold);
+            }
             list.append(card);
         }
     }

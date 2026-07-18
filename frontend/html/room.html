@@ -67,6 +67,10 @@
         <h2 id="game-settings-title">Game settings</h2>
         <p id="game-settings-description">Customize the roles and rules for all five quests.</p>
         <form id="game-settings-form">
+            <label class="recommended-settings-toggle" for="game-settings-recommended">
+                <input id="game-settings-recommended" name="recommendedSettings" type="checkbox">
+                <span><strong>Recommended settings</strong><small>Automatically update roles and quests when the number of players changes.</small></span>
+            </label>
             <div class="game-settings-tabs" role="tablist" aria-label="Game settings sections">
                 <button id="game-settings-roles-tab" class="game-settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="game-settings-roles-panel">Roles</button>
                 <button id="game-settings-quests-tab" class="game-settings-tab" type="button" role="tab" aria-selected="false" aria-controls="game-settings-quests-panel" tabindex="-1">Quests</button>

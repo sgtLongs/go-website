@@ -49,6 +49,7 @@ const (
 // each quest. Minions and Assassins belong to the traitor faction; Innocents
 // and Merlins belong to the innocent faction.
 type Settings struct {
+	RecommendedSettings bool             `json:"recommendedSettings"`
 	Minions             int              `json:"minions"`
 	Innocents           int              `json:"innocents"`
 	Merlins             int              `json:"merlins"`
@@ -63,6 +64,7 @@ func (settings Settings) Total() int {
 
 func DefaultSettings(playerCount int) Settings {
 	if settings, exists := recommendedSettingsFor(playerCount); exists {
+		settings.RecommendedSettings = true
 		return settings
 	}
 	return Settings{Innocents: playerCount}

@@ -152,7 +152,8 @@ func TestRosterChangeRefreshesConfiguredQuestSettings(t *testing.T) {
 		room.count.Add(1)
 	}
 	room.gameSettings = game.Settings{
-		Minions: 2, Innocents: 2, Merlins: 1, Assassins: 1,
+		RecommendedSettings: true,
+		Minions:             2, Innocents: 2, Merlins: 1, Assassins: 1,
 		QuestSizes:          [game.TotalRounds]int{6, 6, 6, 6, 6},
 		QuestFailThresholds: [game.TotalRounds]int{2, 2, 2, 2, 2},
 	}
@@ -181,6 +182,36 @@ func TestRosterChangeRefreshesConfiguredQuestSettings(t *testing.T) {
 	}
 	if update.GameSettings.QuestSizes != wantSizes {
 		t.Fatalf("broadcast quest sizes = %v, want %v", update.GameSettings.QuestSizes, wantSizes)
+	}
+}
+
+func TestRosterChangePreservesSettingsWhenRecommendationsDisabled(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "One", false),
+		testClient(room, "Two", false),
+		testClient(room, "Three", false),
+	}
+	for _, client := range clients {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+	room.gameSettings = game.Settings{
+		Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{2, 2, 2, 2, 2},
+		QuestFailThresholds: [game.TotalRounds]int{1, 1, 1, 1, 1},
+	}
+	want := room.gameSettings
+
+	if !room.disconnect(clients[3], true) {
+		t.Fatal("connected player was not removed")
+	}
+	if room.gameSettings != want {
+		t.Fatalf("settings after leave = %#v, want preserved %#v", room.gameSettings, want)
 	}
 }
 
@@ -307,9 +338,11 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	host := testClient(room, "Host", true)
 	guestOne := testClient(room, "Guest One", false)
 	guestTwo := testClient(room, "Guest Two", false)
+	guestThree := testClient(room, "Guest Three", false)
 	room.clients[host] = struct{}{}
 	room.clients[guestOne] = struct{}{}
 	room.clients[guestTwo] = struct{}{}
+	room.clients[guestThree] = struct{}{}
 
 	if err := room.startGame(host); err != nil {
 		t.Fatal(err)
@@ -319,7 +352,7 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	}
 
 	traitors, merlins := 0, 0
-	for _, client := range []*Client{host, guestOne, guestTwo} {
+	for _, client := range []*Client{host, guestOne, guestTwo, guestThree} {
 		started := receiveEvent(t, client)
 		if started.Type != "game_started" {
 			t.Fatalf("first event = %q, want game_started", started.Type)

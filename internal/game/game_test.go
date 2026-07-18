@@ -202,7 +202,7 @@ func TestDefaultQuestSettingsUsesConfiguredRules(t *testing.T) {
 }
 
 func TestDefaultSettingsUsesRecommendedRoles(t *testing.T) {
-	want := Settings{Minions: 2, Innocents: 4, Merlins: 1, Assassins: 1}
+	want := Settings{RecommendedSettings: true, Minions: 2, Innocents: 4, Merlins: 1, Assassins: 1}
 	if got := DefaultSettings(8); got != want {
 		t.Fatalf("default settings = %#v, want %#v", got, want)
 	}
@@ -379,7 +379,8 @@ func TestMissedAssassinationSkipsDeadCaptain(t *testing.T) {
 
 func TestQuestSizeUsesLivingPlayerCount(t *testing.T) {
 	engine := newWithChooser(func(int) (int, error) { return 0, nil })
-	if _, err := engine.Start(testPlayers()[:3]); err != nil {
+	settings := Settings{Minions: 1, Innocents: 1, Assassins: 1}
+	if _, err := engine.StartWithSettings(testPlayers()[:3], settings); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := engine.Assassinate("one", "three"); err != nil {

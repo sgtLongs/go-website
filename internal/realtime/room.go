@@ -336,7 +336,7 @@ func (r *Room) effectiveGameSettings() game.Settings {
 // refreshQuestSettings resets roles and quests to the recommendations for the
 // current player count. A zero value marks fully automatic lobby settings.
 func (r *Room) refreshQuestSettings() {
-	if r.game.Active() || r.gameSettings == (game.Settings{}) {
+	if r.game.Active() || r.gameSettings == (game.Settings{}) || !r.gameSettings.RecommendedSettings {
 		return
 	}
 	defaults := game.DefaultQuestSettings(len(r.clients))
