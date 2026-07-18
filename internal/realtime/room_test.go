@@ -229,6 +229,29 @@ func TestEmptyRoomClosesAfterGracePeriod(t *testing.T) {
 	}
 }
 
+func TestLastExplicitLeaveClosesRoomImmediately(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	room := newRoom("game-room", func(*Room) { closed <- struct{}{} })
+	go room.run()
+	client := testClient(room, "Host", true)
+	room.register <- client
+	_ = receiveEvent(t, client)
+	_ = receiveEvent(t, client)
+
+	room.commands <- roomCommand{client: client, kind: "leave_room"}
+
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("last explicit departure did not close the room")
+	}
+	select {
+	case <-room.done:
+	case <-time.After(time.Second):
+		t.Fatal("room continued running after its last participant left")
+	}
+}
+
 func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)

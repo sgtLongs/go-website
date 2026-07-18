@@ -32,7 +32,10 @@ type clientCommand struct {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.room.unregister <- c
+		select {
+		case c.room.unregister <- c:
+		case <-c.room.done:
+		}
 		c.connection.Close()
 	}()
 

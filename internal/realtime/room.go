@@ -74,6 +74,7 @@ type Room struct {
 	hostTransferGeneration uint64
 	onHostTransfer         func(string, string) error
 	chooseHost             func([]Participant) Participant
+	closed                 bool
 }
 
 func newRoom(id string, onEmpty func(*Room)) *Room {
@@ -207,6 +208,9 @@ func (r *Room) run() {
 
 		case command := <-r.commands:
 			r.handleCommand(command)
+			if r.closed {
+				return
+			}
 		}
 	}
 }
@@ -220,7 +224,6 @@ func (r *Room) disconnect(client *Client, departed bool) bool {
 	delete(r.connections, client.participant.ID)
 	delete(r.clients, client)
 	r.count.Add(-1)
-	close(client.send)
 	if departed {
 		delete(r.participants, client.participant.ID)
 		r.broadcastEvent("user_left", client.participant)
@@ -260,6 +263,16 @@ func (r *Room) disconnect(client *Client, departed bool) bool {
 		}
 		r.broadcastGameStartRoster()
 	}
+	// An intentional departure removes the participant from the roster. Once
+	// the final participant leaves, close the lobby immediately; ordinary
+	// socket losses still use the empty grace period so players can reconnect.
+	if departed && len(r.clients) == 0 && len(r.participants) == 0 {
+		if r.onEmpty != nil {
+			r.onEmpty(r)
+		}
+		r.closed = true
+	}
+	close(client.send)
 	return true
 }
 
