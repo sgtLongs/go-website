@@ -168,6 +168,83 @@ func TestSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestQuestSettingsValidation(t *testing.T) {
+	valid := Settings{
+		Minions: 2, Innocents: 2,
+		QuestSizes:          [TotalRounds]int{3, 2, 4, 3, 2},
+		QuestFailThresholds: [TotalRounds]int{2, 1, 3, 2, 1},
+	}
+	if err := valid.Validate(4); err != nil {
+		t.Fatalf("valid quest settings error = %v", err)
+	}
+
+	invalid := []Settings{
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{5, 2, 2, 2, 2}},
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{2, 2, 2, 2, 2}, QuestFailThresholds: [TotalRounds]int{3, 1, 1, 1, 1}},
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{-1, 2, 2, 2, 2}},
+	}
+	for _, settings := range invalid {
+		if err := settings.Validate(4); !errors.Is(err, ErrInvalidQuestRules) {
+			t.Errorf("Validate(%#v) error = %v, want ErrInvalidQuestRules", settings, err)
+		}
+	}
+}
+
+func TestDefaultQuestSettingsUsesConfiguredRules(t *testing.T) {
+	settings := DefaultQuestSettings(7)
+	want := [TotalRounds]int{2, 3, 3, 4, 4}
+	if settings.QuestSizes != want {
+		t.Fatalf("default quest sizes = %v, want %v", settings.QuestSizes, want)
+	}
+	if settings.QuestFailThresholds != [TotalRounds]int{1, 1, 1, 2, 1} {
+		t.Fatalf("default quest failure thresholds = %v, want round four to require two", settings.QuestFailThresholds)
+	}
+}
+
+func TestDefaultSettingsUsesRecommendedRoles(t *testing.T) {
+	want := Settings{RecommendedSettings: true, Minions: 2, Innocents: 4, Merlins: 1, Assassins: 1}
+	if got := DefaultSettings(8); got != want {
+		t.Fatalf("default settings = %#v, want %#v", got, want)
+	}
+}
+
+func TestCustomQuestSizeAndFailureThreshold(t *testing.T) {
+	settings := Settings{
+		Minions: 2, Innocents: 2,
+		QuestSizes:          [TotalRounds]int{3, 3, 3, 3, 3},
+		QuestFailThresholds: [TotalRounds]int{2, 2, 2, 2, 2},
+	}
+	playFirstQuest := func(t *testing.T, cards map[string]bool) Snapshot {
+		t.Helper()
+		engine := newWithChooser(func(int) (int, error) { return 0, nil })
+		started, err := engine.StartWithSettings(testPlayers(), settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started.State.QuestSize != 3 || started.State.QuestFailsNeeded != 2 {
+			t.Fatalf("quest rule = %d players/%d failures, want 3/2", started.State.QuestSize, started.State.QuestFailsNeeded)
+		}
+		team := []string{"one", "two", "three"}
+		approveQuest(t, engine, started.State.Captain.ID, team)
+		for _, playerID := range team {
+			if _, err := engine.PlayQuestCard(playerID, cards[playerID]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return engine.Snapshot()
+	}
+
+	succeeded := playFirstQuest(t, map[string]bool{"one": false, "two": true, "three": true})
+	if succeeded.LastQuest == nil || !succeeded.LastQuest.Succeeded || succeeded.LastQuest.FailCards != 1 || succeeded.LastQuest.FailsNeeded != 2 {
+		t.Fatalf("one-failure quest result = %#v, want success with two failures needed", succeeded.LastQuest)
+	}
+
+	failed := playFirstQuest(t, map[string]bool{"one": false, "two": false, "three": true})
+	if failed.LastQuest == nil || failed.LastQuest.Succeeded || failed.LastQuest.FailCards != 2 || failed.LastQuest.FailsNeeded != 2 {
+		t.Fatalf("two-failure quest result = %#v, want failure", failed.LastQuest)
+	}
+}
+
 func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
 	engine := newWithChooser(func(int) (int, error) { return 0, nil })
 	settings := Settings{Minions: 2, Innocents: 2}
@@ -180,6 +257,24 @@ func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
 	}
 	if !reflect.DeepEqual(restored.Export().Roles, engine.Export().Roles) {
 		t.Fatalf("restored roles = %#v, want %#v", restored.Export().Roles, engine.Export().Roles)
+	}
+}
+
+func TestRestoreUpgradesMissedAssassinationToDeadState(t *testing.T) {
+	engine := startedEngine(t)
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	state := engine.Export()
+	state.Players[2].Dead = false
+	state.Assassination.Target.Dead = false
+
+	restored := New()
+	if err := restored.Restore(state); err != nil {
+		t.Fatal(err)
+	}
+	if !restored.IsDead("three") || !restored.Snapshot().Assassination.Target.Dead {
+		t.Fatalf("legacy assassination was not upgraded: %#v", restored.Snapshot())
 	}
 }
 
@@ -210,6 +305,9 @@ func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	if state.Assassination == nil || state.Assassination.Assassin.ID != "one" || state.Assassination.Target.ID != "three" || state.Assassination.Correct {
 		t.Fatalf("public assassination = %#v", state.Assassination)
 	}
+	if !state.Players[2].Dead || !state.Assassination.Target.Dead || !engine.IsDead("three") {
+		t.Fatalf("assassination target was not marked dead: %#v", state)
+	}
 	if _, err := engine.Assassinate("one", "two"); !errors.Is(err, ErrAssassinationUsed) {
 		t.Fatalf("second attempt error = %v", err)
 	}
@@ -220,6 +318,76 @@ func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	}
 	if !reflect.DeepEqual(restored.Snapshot(), state) {
 		t.Fatalf("restored assassination = %#v, want %#v", restored.Snapshot(), state)
+	}
+}
+
+func TestDeadPlayerCannotJoinQuestsOrVote(t *testing.T) {
+	engine := startedEngine(t)
+	if err := engine.ProposeQuest("one", []string{"one", "three"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.VoteOnProposal("one", true); err != nil {
+		t.Fatal(err)
+	}
+	if correct, err := engine.Assassinate("one", "three"); err != nil || correct {
+		t.Fatalf("missed assassination = %v, %v", correct, err)
+	}
+
+	state := engine.Snapshot()
+	if state.Phase != ChoosingTeam || len(state.Quest) != 0 || state.ProposalVotesCast != 0 || state.ProposalVotesNeeded != 3 {
+		t.Fatalf("missed assassination did not reset team selection for living players: %#v", state)
+	}
+	if err := engine.ProposeQuest("one", []string{"one", "three"}); !errors.Is(err, ErrInvalidQuest) {
+		t.Fatalf("dead quest member error = %v, want ErrInvalidQuest", err)
+	}
+	if err := engine.ProposeQuest("one", []string{"one", "two"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.VoteOnProposal("three", true); !errors.Is(err, ErrDeadPlayer) {
+		t.Fatalf("dead voter error = %v, want ErrDeadPlayer", err)
+	}
+	for _, id := range []string{"one", "two", "four"} {
+		if _, err := engine.VoteOnProposal(id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if engine.Snapshot().Phase != PlayingQuest {
+		t.Fatalf("living-player vote did not complete: %#v", engine.Snapshot())
+	}
+}
+
+func TestMissedAssassinationSkipsDeadCaptain(t *testing.T) {
+	choices := []int{0, 0, 2}
+	engine := newWithChooser(func(int) (int, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	})
+	if _, err := engine.Start(testPlayers()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.Snapshot().Captain.ID != "three" {
+		t.Fatalf("initial captain = %q, want three", engine.Snapshot().Captain.ID)
+	}
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	if captain := engine.Snapshot().Captain; captain.ID != "four" || captain.Dead {
+		t.Fatalf("captain after assassination = %#v, want living player four", captain)
+	}
+}
+
+func TestQuestSizeUsesLivingPlayerCount(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	settings := Settings{Minions: 1, Innocents: 1, Assassins: 1}
+	if _, err := engine.StartWithSettings(testPlayers()[:3], settings); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	if size := engine.Snapshot().QuestSize; size != 1 {
+		t.Fatalf("quest size after death = %d, want 1 for two living players", size)
 	}
 }
 

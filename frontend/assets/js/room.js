@@ -44,9 +44,12 @@
     const gameStartingSettings = byID("game-starting-settings");
     const gameSettingsDialog = byID("game-settings-dialog");
     const gameSettingsForm = byID("game-settings-form");
+    const gameSettingsTabs = [...gameSettingsForm.querySelectorAll('[role="tab"]')];
+    const gameSettingsPanels = [...gameSettingsForm.querySelectorAll('[role="tabpanel"]')];
     const gameSettingsTotal = byID("game-settings-total");
     const gameSettingsLobbyWarning = byID("game-settings-lobby-warning");
     const gameSettingsError = byID("game-settings-error");
+    const recommendedSettingsInput = byID("game-settings-recommended");
     const saveGameSettings = byID("save-game-settings");
     const cancelGameSettings = byID("cancel-game-settings");
     const mobileRoleCountControls = window.matchMedia("(max-width: 480px)");
@@ -64,6 +67,7 @@
     const gameError = byID("game-error");
     const sidebar = byID("room-sidebar");
     const sidebarToggle = byID("sidebar-toggle");
+    const waitingSidebarToggle = byID("waiting-sidebar-toggle");
     const captainSidebarToggle = byID("captain-sidebar-toggle");
     const gameStartingSidebarToggle = byID("game-starting-sidebar-toggle");
     const sidebarClose = byID("sidebar-close");
@@ -84,6 +88,9 @@
     const confirmAssassination = byID("confirm-assassination");
     const cancelAssassination = byID("cancel-assassination");
     const assassinationStatus = byID("assassination-status");
+    const hostReceivedDialog = byID("host-received-dialog");
+    const acknowledgeHost = byID("acknowledge-host");
+    const hostTransferToast = byID("host-transfer-toast");
 
     const participants = new Map();
     const autoJoinKey = `${storagePrefix}room-auto-join:${roomID}`;
@@ -95,6 +102,8 @@
     let reconnectAttempts = 0;
     let chosenName = "";
     let intentionallyClosed = false;
+    let leavingRoom = false;
+    let leaveFallbackTimer;
     let sidebarReturnFocus = sidebarToggle;
     let isHost = false;
     let playerID = "";
@@ -122,13 +131,14 @@
     let gameStartPlayers = [];
     let gameStarting = false;
     let gameStartConfirmed = false;
-    let gameSettings = {minions: 0, innocents: 0, merlins: 1, assassins: 1};
+    let gameSettings = {recommendedSettings: true, minions: 0, innocents: 0, merlins: 1, assassins: 1};
     let gameStartCountdownActive = false;
     let gameStartCountdownSeconds = 0;
     let gameStartCountdownTimer;
     let gameStartPulseTimer;
     let unreadyGlowTimer;
     let gameStartingWarningTimer;
+    let hostTransferToastTimer;
     let gameState = null;
     let phaseKey = "";
     let submittedProposalVote = false;
@@ -150,6 +160,7 @@
     let rejectedTeamToastTimer;
     let rejectedTeamToastHideTimer;
     let rejectedTeamToastExitAnimation;
+    let assassinationToastKey = "";
 
     const storedDisplayName = window.sessionStorage.getItem(roomDisplayNameKey)
         || window.sessionStorage.getItem(presenceDisplayNameKey)
@@ -157,6 +168,7 @@
     displayName.value = storedDisplayName;
 
     sidebarToggle.addEventListener("click", openSidebar);
+    waitingSidebarToggle.addEventListener("click", openSidebar);
     captainSidebarToggle.addEventListener("click", openSidebar);
     gameStartingSidebarToggle.addEventListener("click", openSidebar);
     sidebarClose.addEventListener("click", closeSidebar);
@@ -192,14 +204,44 @@
     gameSettingsDialog.addEventListener("click", (event) => {
         if (event.target === gameSettingsDialog) gameSettingsDialog.close();
     });
-    gameSettingsForm.addEventListener("input", renderGameSettingsValidation);
+    for (const tab of gameSettingsTabs) {
+        tab.addEventListener("click", () => selectGameSettingsTab(tab));
+        tab.addEventListener("keydown", (event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const direction = event.key === "ArrowRight" ? 1 : -1;
+            const nextIndex = (gameSettingsTabs.indexOf(tab) + direction + gameSettingsTabs.length) % gameSettingsTabs.length;
+            selectGameSettingsTab(gameSettingsTabs[nextIndex]);
+            gameSettingsTabs[nextIndex].focus();
+        });
+    }
+    gameSettingsForm.addEventListener("input", (event) => {
+        if (event.target === recommendedSettingsInput && recommendedSettingsInput.checked) {
+            const playerCount = connectedGameStartPlayerCount();
+            const defaults = defaultGameSettings(playerCount);
+            for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+                gameSettingsForm.elements.namedItem(name).value = String(defaults[name]);
+            }
+            for (let round = 1; round <= 5; round += 1) {
+                gameSettingsForm.elements.namedItem(`quest-size-${round}`).value = String(defaults.questSizes[round - 1]);
+                gameSettingsForm.elements.namedItem(`quest-fails-${round}`).value = String(defaults.questFailThresholds[round - 1]);
+            }
+            syncQuestInputLimits(false);
+        }
+        updateRecommendedSettingsLock();
+        if (event.target.name?.startsWith("quest-size-")) syncQuestInputLimits(true);
+        renderGameSettingsValidation();
+    });
     gameSettingsForm.addEventListener("click", (event) => {
-        const stepButton = event.target.closest(".role-count-step");
+        const stepButton = event.target.closest(".settings-count-step");
         if (!stepButton) return;
-        const input = stepButton.closest(".role-count-controls").querySelector("input");
+        const input = stepButton.closest(".settings-count-controls").querySelector("input");
         const direction = Number(stepButton.dataset.direction);
         const minimum = Number(input.min) || 0;
-        const maximum = Number(input.max) || gameStartPlayers.length;
+        const configuredMaximum = Number(input.max);
+        const maximum = Number.isFinite(configuredMaximum) && configuredMaximum > 0
+            ? configuredMaximum
+            : connectedGameStartPlayerCount();
         input.value = String(Math.max(minimum, Math.min(maximum, Number(input.value) + direction)));
         input.dispatchEvent(new Event("input", {bubbles: true}));
     });
@@ -208,7 +250,7 @@
     gameSettingsForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const settings = readGameSettingsForm();
-        if (!validGameSettings(settings)) {
+        if (!validGameSettings(settings, connectedGameStartPlayerCount())) {
             renderGameSettingsValidation();
             return;
         }
@@ -216,6 +258,7 @@
         gameSettingsDialog.close();
     });
     roleReveal.addEventListener("click", () => {
+        if (isDeadPlayer(playerID)) return;
         roleRevealed = !roleRevealed;
         if (!roleRevealed) closeMerlinKnowledge();
         renderRole();
@@ -273,12 +316,21 @@
     cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
     confirmLeaveRoom.addEventListener("click", () => {
         intentionallyClosed = true;
-        socket?.close();
-        window.location.assign(appBaseURL.href);
+        leavingRoom = true;
+        window.clearTimeout(reconnectTimer);
+        leaveRoomDialog.close();
+        if (socket?.readyState !== WebSocket.OPEN) {
+            window.location.assign(appBaseURL.href);
+            return;
+        }
+        setStatus("Leaving…", false);
+        socket.send(JSON.stringify({type: "leave_room"}));
+        leaveFallbackTimer = window.setTimeout(() => window.location.assign(appBaseURL.href), 1000);
     });
     leaveRoomDialog.addEventListener("click", (event) => {
         if (event.target === leaveRoomDialog) leaveRoomDialog.close();
     });
+    acknowledgeHost.addEventListener("click", () => hostReceivedDialog.close());
     assassinatePlayerButton.addEventListener("click", () => {
         closeSidebar(false);
         openAssassinationDialog();
@@ -625,10 +677,27 @@
                 }
             } else if (event.type === "user_joined") {
                 participants.set(event.data.id, event.data);
+                applyRosterGameSettings(event.data);
+                if (gameStarting) renderGameStarting();
+            } else if (event.type === "user_disconnected") {
+                participants.set(event.data.id, event.data);
+                applyRosterGameSettings(event.data);
                 if (gameStarting) renderGameStarting();
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
+                applyRosterGameSettings(event.data);
                 if (gameStarting) renderGameStarting();
+            } else if (event.type === "host_transferred") {
+                for (const person of participants.values()) person.host = person.id === event.data.id;
+                participants.set(event.data.id, event.data);
+                isHost = event.data.id === playerID;
+                renderGame();
+                renderGameStarting();
+                if (isHost) {
+                    if (!hostReceivedDialog.open) hostReceivedDialog.showModal();
+                } else {
+                    showHostTransferToast(`${event.data.name} is now the room host.`);
+                }
             } else if (event.type === "game_started") {
                 // Keep the starting screen covering the room until the following
                 // role_assigned event is ready to replace it. WebSocket messages
@@ -675,6 +744,7 @@
                 gameStartPlayers = event.data.players || [];
                 pendingGameStartConfirmations = event.data.pendingPlayers || [];
                 gameSettings = event.data.settings || gameSettings;
+                syncOpenQuestSettings();
                 gameStartConfirmed = !pendingGameStartConfirmations.some((player) => player.id === playerID);
                 if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
@@ -711,8 +781,11 @@
         });
 
         socket.addEventListener("close", () => {
-            participants.clear();
-            renderParticipants();
+            if (leavingRoom) {
+                window.clearTimeout(leaveFallbackTimer);
+                window.location.assign(appBaseURL.href);
+                return;
+            }
             if (!intentionallyClosed) scheduleReconnect();
         });
         socket.addEventListener("error", () => socket.close());
@@ -738,11 +811,21 @@
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
     }
 
+    function showHostTransferToast(message) {
+        window.clearTimeout(hostTransferToastTimer);
+        hostTransferToast.textContent = message;
+        hostTransferToast.hidden = false;
+        hostTransferToastTimer = window.setTimeout(() => {
+            hostTransferToast.hidden = true;
+        }, 5000);
+    }
+
     function openSidebar(event) {
         sidebarReturnFocus = event?.currentTarget || sidebarToggle;
         sidebar.classList.add("open");
         sidebar.setAttribute("aria-hidden", "false");
         sidebarToggle.setAttribute("aria-expanded", "true");
+        waitingSidebarToggle.setAttribute("aria-expanded", "true");
         captainSidebarToggle.setAttribute("aria-expanded", "true");
         gameStartingSidebarToggle.setAttribute("aria-expanded", "true");
         sidebarBackdrop.hidden = false;
@@ -754,6 +837,7 @@
         sidebar.classList.remove("open");
         sidebar.setAttribute("aria-hidden", "true");
         sidebarToggle.setAttribute("aria-expanded", "false");
+        waitingSidebarToggle.setAttribute("aria-expanded", "false");
         captainSidebarToggle.setAttribute("aria-expanded", "false");
         gameStartingSidebarToggle.setAttribute("aria-expanded", "false");
         sidebarBackdrop.hidden = true;
@@ -778,6 +862,13 @@
     function setGameState(nextState) {
         const previousQuestResult = gameState?.lastQuest?.round;
         const previousProposalResult = gameState?.lastProposal;
+        if (!nextState.assassination && gameState?.assassination) assassinationToastKey = "";
+        const missedAssassination = nextState.assassination && !nextState.assassination.correct && !gameState?.assassination;
+        if (missedAssassination) {
+            deferredQuestResult = null;
+            dismissProposalResult(false);
+            dismissQuestResult(true);
+        }
         if (nextState.phase === "complete") {
             deferredQuestResult = null;
             dismissProposalResult(false);
@@ -967,8 +1058,10 @@
         questResultDetail.textContent = quest.automatic
             ? `Quest ${quest.round} automatically failed after five rejected teams.`
             : succeeded
-                ? `All ${quest.successCards} cards were successes.`
-                : `${quest.failCards} out of ${totalCards} cards failed.`;
+                ? quest.failCards === 0
+                    ? `All ${quest.successCards} cards were successes.`
+                    : `${quest.failCards} out of ${totalCards} cards failed, but ${quest.failsNeeded || 1} were needed to fail the quest.`
+                : `${quest.failCards} out of ${totalCards} cards failed (${quest.failsNeeded || 1} needed).`;
         let secondsRemaining = 10;
         updateQuestResultAction(secondsRemaining);
         questResultTimer = window.setInterval(() => {
@@ -1075,12 +1168,24 @@
 
     function openGameSettingsDialog() {
         if (!isHost) return;
-        const settings = gameSettings || defaultGameSettings(connectedGameStartPlayerCount());
+        const playerCount = connectedGameStartPlayerCount();
+        const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        recommendedSettingsInput.checked = settings.recommendedSettings;
+        updateRecommendedSettingsLock();
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             const input = gameSettingsForm.elements.namedItem(name);
             input.value = String(settings[name] ?? 0);
             input.max = String(name === "merlins" || name === "assassins" ? 1 : 99);
         }
+        for (let round = 1; round <= 5; round += 1) {
+            const sizeInput = gameSettingsForm.elements.namedItem(`quest-size-${round}`);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            sizeInput.value = String(settings.questSizes[round - 1]);
+            sizeInput.max = String(playerCount);
+            failuresInput.value = String(settings.questFailThresholds[round - 1]);
+        }
+        syncQuestInputLimits(false);
+        selectGameSettingsTab(gameSettingsTabs[0]);
         gameSettingsError.hidden = true;
         renderGameSettingsValidation();
         gameSettingsDialog.showModal();
@@ -1091,16 +1196,53 @@
         }
     }
 
+    function applyRosterGameSettings(data) {
+        if (data.gameSettings) gameSettings = data.gameSettings;
+        syncOpenQuestSettings();
+    }
+
+    function syncOpenQuestSettings() {
+        if (!gameSettingsDialog.open) return;
+        const playerCount = connectedGameStartPlayerCount();
+        const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        recommendedSettingsInput.checked = settings.recommendedSettings;
+        updateRecommendedSettingsLock();
+        for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+            gameSettingsForm.elements.namedItem(name).value = String(settings[name] ?? 0);
+        }
+        for (let round = 1; round <= 5; round += 1) {
+            const sizeInput = gameSettingsForm.elements.namedItem(`quest-size-${round}`);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            sizeInput.value = String(settings.questSizes[round - 1]);
+            sizeInput.max = String(playerCount);
+            failuresInput.value = String(settings.questFailThresholds[round - 1]);
+        }
+        syncQuestInputLimits(false);
+        renderGameSettingsValidation();
+    }
+
     function readGameSettingsForm() {
-        const settings = {};
+        const settings = {recommendedSettings: recommendedSettingsInput.checked, questSizes: [], questFailThresholds: []};
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             settings[name] = Number(gameSettingsForm.elements.namedItem(name).value);
+        }
+        for (let round = 1; round <= 5; round += 1) {
+            settings.questSizes.push(Number(gameSettingsForm.elements.namedItem(`quest-size-${round}`).value));
+            settings.questFailThresholds.push(Number(gameSettingsForm.elements.namedItem(`quest-fails-${round}`).value));
         }
         return settings;
     }
 
-    function validGameSettings(settings) {
-        const counts = Object.values(settings);
+    function updateRecommendedSettingsLock() {
+        const locked = recommendedSettingsInput.checked;
+        gameSettingsForm.classList.toggle("recommended-lock", locked);
+        for (const input of gameSettingsForm.querySelectorAll('input[type="number"], .settings-count-step')) {
+            input.disabled = locked;
+        }
+    }
+
+    function validRoleSettings(settings) {
+        const counts = [settings.minions, settings.innocents, settings.merlins, settings.assassins];
         return counts.every((count) => Number.isInteger(count) && count >= 0)
             && settings.merlins <= 1
             && settings.assassins <= 1
@@ -1108,26 +1250,42 @@
             && settings.innocents + settings.merlins > 0;
     }
 
+    function validQuestSettings(settings, playerCount) {
+        return settings.questSizes.every((size) => Number.isInteger(size) && size >= 1 && size <= playerCount)
+            && settings.questFailThresholds.every((failures, index) => (
+                Number.isInteger(failures) && failures >= 1 && failures <= settings.questSizes[index]
+            ));
+    }
+
+    function validGameSettings(settings, playerCount) {
+        return validRoleSettings(settings) && validQuestSettings(settings, playerCount);
+    }
+
     function renderGameSettingsValidation() {
         const settings = readGameSettingsForm();
-        const counts = Object.values(settings);
+        const counts = [settings.minions, settings.innocents, settings.merlins, settings.assassins];
         const total = counts.every(Number.isFinite) ? counts.reduce((sum, count) => sum + count, 0) : 0;
-        const valid = validGameSettings(settings);
+        const rolesValid = validRoleSettings(settings);
         const connectedPlayers = connectedGameStartPlayerCount();
+        const questsValid = validQuestSettings(settings, connectedPlayers);
+        const valid = rolesValid && questsValid;
         gameSettingsTotal.textContent = `${total} role${total === 1 ? "" : "s"} configured for ${connectedPlayers} connected player${connectedPlayers === 1 ? "" : "s"}`;
-        gameSettingsTotal.classList.toggle("valid", valid);
-        gameSettingsTotal.classList.toggle("invalid", !valid);
+        gameSettingsTotal.classList.toggle("valid", rolesValid);
+        gameSettingsTotal.classList.toggle("invalid", !rolesValid);
         const rolePlayerMismatch = total !== connectedPlayers;
         gameSettingsLobbyWarning.textContent = rolePlayerMismatch
             ? gameStartRoleWarning(total, connectedPlayers)
             : "";
         gameSettingsLobbyWarning.hidden = !rolePlayerMismatch;
         saveGameSettings.disabled = !valid;
-        updateRoleCountStepButtons();
-        if (!valid) {
+        updateSettingsCountStepButtons();
+        if (!rolesValid) {
             gameSettingsError.textContent = settings.merlins > 1 || settings.assassins > 1
                 ? "A game can have at most one Merlin and one Assassin."
                 : "Include at least one loyal player and one Minion of Mordred.";
+            gameSettingsError.hidden = false;
+        } else if (!questsValid) {
+            gameSettingsError.textContent = "Each quest needs 1 or more players, and failures needed cannot exceed its team size.";
             gameSettingsError.hidden = false;
         } else {
             gameSettingsError.hidden = true;
@@ -1135,7 +1293,7 @@
     }
 
     function updateMobileRoleCountInputs() {
-        for (const input of gameSettingsForm.querySelectorAll('.role-count-controls input')) {
+        for (const input of gameSettingsForm.querySelectorAll('.settings-count-controls input')) {
             input.readOnly = mobileRoleCountControls.matches;
             input.inputMode = mobileRoleCountControls.matches ? "none" : "numeric";
         }
@@ -1148,8 +1306,8 @@
 
     function connectedGameStartPlayerCount() {
         return gameStarting
-            ? gameStartPlayers.filter((player) => participants.has(player.id)).length
-            : participants.size;
+            ? gameStartPlayers.filter((player) => participants.get(player.id)?.connected !== false).length
+            : [...participants.values()].filter((player) => player.connected !== false).length;
     }
 
     function gameStartRoleWarning(roles, players) {
@@ -1158,21 +1316,75 @@
             : `Game can’t start: only ${roles} roles for ${players} players.`;
     }
 
-    function updateRoleCountStepButtons() {
-        for (const controls of gameSettingsForm.querySelectorAll(".role-count-controls")) {
+    function updateSettingsCountStepButtons() {
+        for (const controls of gameSettingsForm.querySelectorAll(".settings-count-controls")) {
             const input = controls.querySelector("input");
             const value = Number(input.value);
             const minimum = Number(input.min) || 0;
-            const maximum = Number(input.max) || gameStartPlayers.length;
+            const maximum = Number(input.max) || connectedGameStartPlayerCount();
             controls.querySelector('[data-direction="-1"]').disabled = value <= minimum;
             controls.querySelector('[data-direction="1"]').disabled = value >= maximum;
         }
     }
 
+    function syncQuestInputLimits(clampFailures) {
+        for (let round = 1; round <= 5; round += 1) {
+            const size = Number(gameSettingsForm.elements.namedItem(`quest-size-${round}`).value);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            failuresInput.max = String(Math.max(1, size));
+            if (clampFailures && Number(failuresInput.value) > size) failuresInput.value = String(Math.max(1, size));
+        }
+    }
+
+    function selectGameSettingsTab(selectedTab) {
+        for (const tab of gameSettingsTabs) {
+            const selected = tab === selectedTab;
+            tab.classList.toggle("active", selected);
+            tab.setAttribute("aria-selected", String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+        }
+        for (const panel of gameSettingsPanels) panel.hidden = panel.id !== selectedTab.getAttribute("aria-controls");
+    }
+
     function defaultGameSettings(playerCount) {
-        return playerCount >= 2
-            ? {minions: 0, innocents: playerCount - 2, merlins: 1, assassins: 1}
-            : {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
+        let roles;
+        if (playerCount < 2) {
+            roles = {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
+        } else if (playerCount <= 3) {
+            roles = {minions: 1, innocents: playerCount - 1, merlins: 0, assassins: 0};
+        } else {
+            const evilPlayers = playerCount >= 5 ? Math.min(4, Math.ceil(playerCount / 3)) : 1;
+            roles = {
+                minions: Math.max(0, evilPlayers - 1),
+                innocents: Math.max(0, playerCount - evilPlayers - 1),
+                merlins: 1,
+                assassins: 1,
+            };
+        }
+        const questFailThresholds = [1, 1, 1, playerCount >= 7 ? 2 : 1, 1];
+        return {recommendedSettings: true, ...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds};
+    }
+
+    function normalizeGameSettings(settings, playerCount) {
+        const defaults = defaultGameSettings(playerCount);
+        return {
+            recommendedSettings: Boolean(settings.recommendedSettings ?? defaults.recommendedSettings),
+            minions: Number(settings.minions ?? defaults.minions),
+            innocents: Number(settings.innocents ?? defaults.innocents),
+            merlins: Number(settings.merlins ?? defaults.merlins),
+            assassins: Number(settings.assassins ?? defaults.assassins),
+            questSizes: defaults.questSizes.map((size, index) => Number(settings.questSizes?.[index]) || size),
+            questFailThresholds: defaults.questFailThresholds.map((failures, index) => Number(settings.questFailThresholds?.[index]) || failures),
+        };
+    }
+
+    function defaultQuestSizes(playerCount) {
+        if (playerCount <= 2) return [1, 1, 1, 1, 1];
+        if (playerCount <= 5) return [2, 3, 2, 3, 3];
+        if (playerCount === 6) return [2, 3, 4, 3, 4];
+        if (playerCount === 7) return [2, 3, 3, 4, 4];
+        if (playerCount <= 10) return [3, 4, 4, 5, 5];
+        return [4, 5, 5, 6, 6];
     }
 
     function showUnreadyGlow() {
@@ -1245,14 +1457,19 @@
 
     function renderRole() {
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
+        const dead = isDeadPlayer(playerID);
         const assignedRole = role ? formatRole(role) : (isPlayer ? "Assigning…" : "Spectator");
-        roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
-        roleRevealHint.hidden = !roleRevealed;
-        roleReveal.classList.toggle("revealed", roleRevealed);
-        roleReveal.classList.toggle("merlin", roleRevealed && role === "merlin");
-        roleReveal.classList.toggle("assassin", roleRevealed && role === "assassin");
-        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
-        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
+        if (dead) roleRevealed = false;
+        roleElement.textContent = dead ? "Assassinated" : roleRevealed ? assignedRole : "Reveal Secret Role";
+        roleRevealHint.hidden = dead || !roleRevealed;
+        roleReveal.disabled = dead;
+        roleReveal.classList.toggle("assassinated", dead);
+        roleReveal.classList.toggle("revealed", !dead && roleRevealed);
+        roleReveal.classList.toggle("traitor", !dead && roleRevealed && role === "traitor");
+        roleReveal.classList.toggle("merlin", !dead && roleRevealed && role === "merlin");
+        roleReveal.classList.toggle("assassin", !dead && roleRevealed && role === "assassin");
+        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination && !dead;
+        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active && !dead;
         roleReveal.hidden = showAssassinAction || showMerlinAction;
         assassinRoleAction.hidden = !showAssassinAction;
         merlinRoleAction.hidden = !showMerlinAction;
@@ -1261,7 +1478,7 @@
     }
 
     function renderRoleConfirmation() {
-        const shouldShow = Boolean(role) && !roleConfirmed && !gameStartCountdownActive && gameState?.phase !== "complete";
+        const shouldShow = Boolean(role) && !roleConfirmed && !isDeadPlayer(playerID) && !gameStartCountdownActive && gameState?.phase !== "complete";
         const wasHidden = roleConfirmation.hidden;
         roleConfirmation.hidden = !shouldShow;
         document.body.classList.toggle("confirming-role", shouldShow);
@@ -1313,6 +1530,12 @@
 
     function renderLastResult() {
         const result = roundResult;
+        const attempt = gameState.assassination;
+        if (attempt && !attempt.correct) {
+            const toastKey = `${attempt.assassin.id}:${attempt.target.id}`;
+            if (assassinationToastKey !== toastKey) showAssassinationToast(attempt, toastKey);
+            if (!result.hidden && result.classList.contains("assassination-toast")) return;
+        }
         if (gameState.lastQuest) {
             dismissRejectedTeamToast(true);
             rejectedTeamToastKey = "";
@@ -1320,8 +1543,10 @@
             result.textContent = quest.automatic
                 ? `Round ${quest.round} automatically failed after five rejected teams.`
                 : quest.succeeded
-                ? `Round ${quest.round} succeeded: all ${quest.successCards} cards were successes.`
-                : `Round ${quest.round} failed: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed.`;
+                ? quest.failCards === 0
+                    ? `Round ${quest.round} succeeded: all ${quest.successCards} cards were successes.`
+                    : `Round ${quest.round} succeeded: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed, fewer than the ${quest.failsNeeded || 1} needed.`
+                : `Round ${quest.round} failed: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed (${quest.failsNeeded || 1} needed).`;
             result.className = `round-result ${quest.succeeded ? "succeeded" : "failed"}`;
             result.hidden = false;
         } else if (gameState.lastProposal && !gameState.lastProposal.approved) {
@@ -1345,6 +1570,34 @@
         roundResult.hidden = false;
         window.clearTimeout(rejectedTeamToastTimer);
         rejectedTeamToastTimer = window.setTimeout(dismissRejectedTeamToast, 5000);
+    }
+
+    function showAssassinationToast(attempt, toastKey) {
+        dismissRejectedTeamToast(true);
+        assassinationToastKey = toastKey;
+        rejectedTeamToastKey = "";
+        window.clearTimeout(rejectedTeamToastHideTimer);
+        rejectedTeamToastExitAnimation?.cancel();
+        rejectedTeamToastExitAnimation = null;
+
+        const assassinName = document.createElement("strong");
+        assassinName.textContent = attempt.assassin.name;
+        const targetName = document.createElement("strong");
+        targetName.textContent = attempt.target.name;
+        const captainName = document.createElement("strong");
+        captainName.textContent = gameState.captain.name;
+        roundResult.replaceChildren(
+            assassinName,
+            document.createTextNode(", the Assassin, tried to assassinate "),
+            targetName,
+            document.createTextNode(". They were not Merlin and are now dead. Captain "),
+            captainName,
+            document.createTextNode(" will choose a new quest team."),
+        );
+        roundResult.className = "round-result failed team-rejected-toast assassination-toast";
+        roundResult.hidden = false;
+        window.clearTimeout(rejectedTeamToastTimer);
+        rejectedTeamToastTimer = window.setTimeout(dismissRejectedTeamToast, 7000);
     }
 
     function dismissRejectedTeamToast(immediately = false) {
@@ -1407,20 +1660,21 @@
 
         renderQuestCards(byID("captain-quest-cards"));
         renderVoteFailureTrackerFor(byID("captain-vote-failure-tracker"));
-        questTeamSelectionOrder = questTeamSelectionOrder.filter((id) => gameState.players.some((player) => player.id === id));
+        questTeamSelectionOrder = questTeamSelectionOrder.filter((id) => gameState.players.some((player) => player.id === id && !player.dead));
         const options = byID("quest-team-options");
         options.replaceChildren();
         for (const player of gameState.players) {
             const label = document.createElement("label");
-            label.className = "player-option";
+            label.className = `player-option${player.dead ? " dead" : ""}`;
             const input = document.createElement("input");
             input.type = "checkbox";
             input.name = "quest-player";
             input.value = player.id;
+            input.disabled = Boolean(player.dead);
             input.checked = questTeamSelectionOrder.includes(player.id);
             input.addEventListener("change", updateTeamSelection);
             const name = document.createElement("span");
-            name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            name.textContent = `${player.id === playerID ? `${player.name} (you)` : player.name}${player.dead ? " — Dead" : ""}`;
             label.append(input, name);
             options.append(label);
         }
@@ -1473,12 +1727,14 @@
     function renderProposal() {
         renderTeam(byID("proposed-team"), gameState.quest);
         scheduleProposedTeamLayout();
-        const canVote = Boolean(role);
+        const canVote = Boolean(role) && !isDeadPlayer(playerID);
         const controls = byID("proposal-controls");
         controls.hidden = !canVote || submittedProposalVote;
         byID("proposal-progress").textContent = submittedProposalVote
             ? `Vote submitted. Waiting for the others (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
-            : !canVote
+            : isDeadPlayer(playerID)
+                ? `You are dead and cannot vote. Waiting for the others (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
+                : !canVote
                 ? `Waiting for anonymous votes (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
                 : `${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded} votes submitted.`;
     }
@@ -1594,7 +1850,17 @@
             const requiredPlayers = gameState.questSizes?.[round - 1] || (round === gameState.round ? gameState.questSize : 0);
             teamSize.textContent = requiredPlayers ? `${requiredPlayers} player${requiredPlayers === 1 ? "" : "s"}` : "";
 
+            const failuresNeeded = gameState.questFailThresholds?.[round - 1]
+                || result?.failsNeeded
+                || (round === gameState.round ? gameState.questFailsNeeded : 1);
+
             card.append(roundLabel, iconElement, statusElement, teamSize);
+            if (failuresNeeded > 1) {
+                const failureThreshold = document.createElement("span");
+                failureThreshold.className = "quest-card-fail-threshold";
+                failureThreshold.textContent = `${failuresNeeded} fails needed`;
+                card.append(failureThreshold);
+            }
             list.append(card);
         }
     }
@@ -1675,6 +1941,7 @@
         phaseKey = "";
         submittedProposalVote = false;
         submittedQuestCard = false;
+        assassinationToastKey = "";
         showOnly(waitingView);
         waitingView.append(startForm);
         startForm.hidden = !isHost;
@@ -1692,19 +1959,28 @@
         assassinatePlayerButton.hidden = !(role === "assassin" && gameState?.active && !attempt);
         assassinationStatus.hidden = !attempt;
         if (!attempt) {
-            assassinationStatus.textContent = "";
+            assassinationStatus.replaceChildren();
             return;
         }
-        assassinationStatus.textContent = attempt.correct
-            ? `${attempt.assassin.name} assassinated ${attempt.target.name}, who was Merlin.`
-            : `${attempt.assassin.name} tried to assassinate ${attempt.target.name}. The guess was wrong, so the game continues.`;
+        const assassinName = document.createElement("strong");
+        assassinName.textContent = attempt.assassin.name;
+        const targetName = document.createElement("strong");
+        targetName.textContent = attempt.target.name;
+        assassinationStatus.replaceChildren(
+            assassinName,
+            document.createTextNode(attempt.correct ? ", the Assassin, assassinated " : ", the Assassin, tried to assassinate "),
+            targetName,
+            document.createTextNode(attempt.correct
+                ? ", who was Merlin."
+                : ". They were not Merlin and are now dead."),
+        );
     }
 
     function renderAssassinationOptions() {
         assassinationOptions.replaceChildren();
         confirmAssassination.disabled = true;
         for (const player of gameState?.players || []) {
-            if (player.id === playerID) continue;
+            if (player.id === playerID || player.dead) continue;
             const label = document.createElement("label");
             label.className = "player-option";
             const input = document.createElement("input");
@@ -1739,6 +2015,7 @@
 
     function showOnly(view) {
         waitingView.hidden = view !== waitingView;
+        waitingSidebarToggle.hidden = view !== waitingView;
         activeView.hidden = view !== activeView;
         endedView.hidden = view !== endedView;
     }
@@ -1759,7 +2036,11 @@
         participantList.replaceChildren();
         for (const person of participants.values()) {
             const item = document.createElement("li");
-            item.textContent = person.name;
+            const disconnected = person.connected === false;
+            const dead = isDeadPlayer(person.id);
+            item.classList.toggle("participant-offline", disconnected);
+            item.classList.toggle("participant-dead", dead);
+            item.textContent = `${person.name}${dead ? " · dead" : disconnected ? " · disconnected" : ""}`;
             if (person.host) {
                 const badge = document.createElement("span");
                 badge.className = "host-badge";
@@ -1772,8 +2053,8 @@
         for (const player of gameState?.players || []) {
             if (participants.has(player.id)) continue;
             const item = document.createElement("li");
-            item.className = "participant-offline";
-            item.textContent = `${player.name} · disconnected`;
+            item.className = player.dead ? "participant-dead" : "participant-offline";
+            item.textContent = `${player.name} · ${player.dead ? "dead" : "disconnected"}`;
             appendVisibleRoleBadge(item, player.id);
             participantList.append(item);
         }
@@ -1792,6 +2073,10 @@
         badge.className = `role-badge ${visibleRole}`;
         badge.textContent = formatRole(visibleRole);
         item.append(badge);
+    }
+
+    function isDeadPlayer(id) {
+        return Boolean(gameState?.players?.some((player) => player.id === id && player.dead));
     }
 
     if (storedDisplayName && window.sessionStorage.getItem(autoJoinKey) === "true") {

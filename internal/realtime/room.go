@@ -1,10 +1,12 @@
 package realtime
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -16,16 +18,18 @@ import (
 const (
 	roomSchemaVersion = 1
 	defaultEmptyGrace = 5 * time.Minute
+	defaultHostGrace  = 5 * time.Minute
 )
 
 var errOnlyHost = errors.New("only the host can start a game")
 
 type roomCommand struct {
-	client    *Client
-	kind      string
-	playerIDs []string
-	choice    bool
-	settings  game.Settings
+	client     *Client
+	kind       string
+	playerIDs  []string
+	choice     bool
+	settings   game.Settings
+	generation uint64
 }
 
 type persistedRoom struct {
@@ -46,6 +50,7 @@ type Room struct {
 	id                     string
 	clients                map[*Client]struct{}
 	connections            map[string]*Client
+	participants           map[string]Participant
 	register               chan *Client
 	unregister             chan *Client
 	commands               chan roomCommand
@@ -64,6 +69,12 @@ type Room struct {
 	store                  *persistence.Store
 	emptyGrace             time.Duration
 	startsEmpty            bool
+	hostGrace              time.Duration
+	hostReservationExpires time.Time
+	hostTransferGeneration uint64
+	onHostTransfer         func(string, string) error
+	chooseHost             func([]Participant) Participant
+	closed                 bool
 }
 
 func newRoom(id string, onEmpty func(*Room)) *Room {
@@ -75,6 +86,7 @@ func newRoomWithStore(id string, onEmpty func(*Room), store *persistence.Store) 
 		id:                     id,
 		clients:                make(map[*Client]struct{}),
 		connections:            make(map[string]*Client),
+		participants:           make(map[string]Participant),
 		register:               make(chan *Client),
 		unregister:             make(chan *Client),
 		commands:               make(chan roomCommand, 16),
@@ -86,6 +98,8 @@ func newRoomWithStore(id string, onEmpty func(*Room), store *persistence.Store) 
 		onEmpty:                onEmpty,
 		store:                  store,
 		emptyGrace:             defaultEmptyGrace,
+		hostGrace:              defaultHostGrace,
+		chooseHost:             randomParticipant,
 	}
 }
 
@@ -135,6 +149,12 @@ func (r *Room) run() {
 		select {
 		case client := <-r.register:
 			stopEmptyTimer()
+			client.participant.Connected = true
+			if existing, known := r.participants[client.participant.ID]; known {
+				client.participant.Host = existing.Host
+			} else if r.currentHostID() != "" {
+				client.participant.Host = false
+			}
 			if previous := r.connections[client.participant.ID]; previous != nil && previous != client {
 				delete(r.clients, previous)
 				close(previous.send)
@@ -143,6 +163,12 @@ func (r *Room) run() {
 			}
 			r.clients[client] = struct{}{}
 			r.connections[client.participant.ID] = client
+			r.participants[client.participant.ID] = client.participant
+			r.refreshQuestSettings()
+			if client.participant.Host {
+				r.hostReservationExpires = time.Time{}
+				r.hostTransferGeneration++
+			}
 			rosterChanged := false
 			if r.gameStarting && !r.gameStartHasPlayer(client.participant.ID) {
 				r.gameStartPlayers = append(r.gameStartPlayers, game.Player{ID: client.participant.ID, Name: client.participant.Name})
@@ -156,13 +182,16 @@ func (r *Room) run() {
 				r.queueError(client, "The room could not be saved. Please try reconnecting.")
 			}
 			r.sendSnapshot(client)
-			r.broadcastEvent("user_joined", client.participant)
+			r.broadcastEvent("user_joined", r.rosterUpdate(client.participant))
+			if !r.hostReservationExpires.IsZero() && !time.Now().Before(r.hostReservationExpires) && !client.participant.Host {
+				r.transferHost(r.currentHostID())
+			}
 			if rosterChanged {
 				r.broadcastGameStartRoster()
 			}
 
 		case client := <-r.unregister:
-			if !r.disconnect(client, true) {
+			if !r.disconnect(client, false) {
 				continue
 			}
 			if len(r.clients) == 0 {
@@ -180,20 +209,47 @@ func (r *Room) run() {
 
 		case command := <-r.commands:
 			r.handleCommand(command)
+			if r.closed {
+				return
+			}
 		}
 	}
 }
 
-func (r *Room) disconnect(client *Client, announce bool) bool {
+// disconnect removes a live socket. An explicit departure removes the roster
+// entry; an unexpected socket loss retains it and marks the player offline.
+func (r *Room) disconnect(client *Client, departed bool) bool {
 	if r.connections[client.participant.ID] != client {
 		return false
 	}
 	delete(r.connections, client.participant.ID)
 	delete(r.clients, client)
 	r.count.Add(-1)
-	close(client.send)
-	if announce {
-		r.broadcastEvent("user_left", client.participant)
+	r.refreshQuestSettings()
+	if departed {
+		delete(r.participants, client.participant.ID)
+		r.broadcastEvent("user_left", r.rosterUpdate(client.participant))
+		if client.participant.Host {
+			r.hostReservationExpires = time.Time{}
+			r.hostTransferGeneration++
+			r.transferHost(client.participant.ID)
+		}
+	} else {
+		participant := client.participant
+		participant.Connected = false
+		r.participants[participant.ID] = participant
+		r.broadcastEvent("user_disconnected", r.rosterUpdate(participant))
+		if participant.Host {
+			r.hostReservationExpires = time.Now().Add(r.hostGrace)
+			r.hostTransferGeneration++
+			generation := r.hostTransferGeneration
+			time.AfterFunc(r.hostGrace, func() {
+				select {
+				case r.commands <- roomCommand{kind: "transfer_host", playerIDs: []string{participant.ID}, generation: generation}:
+				case <-r.done:
+				}
+			})
+		}
 	}
 	if r.gameStarting && r.gameStartHasPlayer(client.participant.ID) {
 		for index, player := range r.gameStartPlayers {
@@ -209,13 +265,23 @@ func (r *Room) disconnect(client *Client, announce bool) bool {
 		}
 		r.broadcastGameStartRoster()
 	}
+	// An intentional departure removes the participant from the roster. Once
+	// the final participant leaves, close the lobby immediately; ordinary
+	// socket losses still use the empty grace period so players can reconnect.
+	if departed && len(r.clients) == 0 && len(r.participants) == 0 {
+		if r.onEmpty != nil {
+			r.onEmpty(r)
+		}
+		r.closed = true
+	}
+	close(client.send)
 	return true
 }
 
 func (r *Room) sendSnapshot(client *Client) {
-	participants := make([]Participant, 0, len(r.clients))
-	for connected := range r.clients {
-		participants = append(participants, connected.participant)
+	participants := make([]Participant, 0, len(r.participants))
+	for _, participant := range r.participants {
+		participants = append(participants, participant)
 	}
 	sort.Slice(participants, func(i, j int) bool { return participants[i].ID < participants[j].ID })
 	snapshot := presenceSnapshot{
@@ -224,10 +290,7 @@ func (r *Room) sendSnapshot(client *Client) {
 		PlayerID:     client.participant.ID,
 	}
 	state := r.game.Snapshot()
-	settings := r.gameSettings
-	if settings == (game.Settings{}) {
-		settings = game.DefaultSettings(len(participants))
-	}
+	settings := r.effectiveGameSettings()
 	snapshot.GameSettings = &settings
 	snapshot.GameStarting = r.gameStarting
 	if r.gameStarting {
@@ -253,6 +316,43 @@ func (r *Room) sendSnapshot(client *Client) {
 	r.queueEvent(client, Event{Type: "presence_snapshot", RoomID: r.id, Data: snapshot})
 }
 
+func (r *Room) effectiveGameSettings() game.Settings {
+	settings := r.gameSettings
+	if settings == (game.Settings{}) {
+		settings = game.DefaultSettings(len(r.clients))
+	}
+	defaults := game.DefaultQuestSettings(len(r.clients))
+	for index := range game.TotalRounds {
+		if settings.QuestSizes[index] == 0 {
+			settings.QuestSizes[index] = defaults.QuestSizes[index]
+		}
+		if settings.QuestFailThresholds[index] == 0 {
+			settings.QuestFailThresholds[index] = defaults.QuestFailThresholds[index]
+		}
+	}
+	return settings
+}
+
+// refreshQuestSettings resets roles and quests to the recommendations for the
+// current player count. A zero value marks fully automatic lobby settings.
+func (r *Room) refreshQuestSettings() {
+	if r.game.Active() || r.gameSettings == (game.Settings{}) || !r.gameSettings.RecommendedSettings {
+		return
+	}
+	defaults := game.DefaultQuestSettings(len(r.clients))
+	roles := game.DefaultSettings(len(r.clients))
+	r.gameSettings.Minions = roles.Minions
+	r.gameSettings.Innocents = roles.Innocents
+	r.gameSettings.Merlins = roles.Merlins
+	r.gameSettings.Assassins = roles.Assassins
+	r.gameSettings.QuestSizes = defaults.QuestSizes
+	r.gameSettings.QuestFailThresholds = defaults.QuestFailThresholds
+}
+
+func (r *Room) rosterUpdate(participant Participant) rosterUpdate {
+	return rosterUpdate{Participant: participant, GameSettings: r.effectiveGameSettings()}
+}
+
 func (r *Room) handleCommand(command roomCommand) {
 	if command.client != nil {
 		current, tracked := r.connections[command.client.participant.ID]
@@ -262,7 +362,19 @@ func (r *Room) handleCommand(command roomCommand) {
 	}
 	before := r.state()
 	var err error
+	missedAssassination := false
+	roleConfirmationsChanged := false
+	proposalResultCleared := false
 	switch command.kind {
+	case "transfer_host":
+		if command.generation != r.hostTransferGeneration || len(command.playerIDs) != 1 || time.Now().Before(r.hostReservationExpires) {
+			return
+		}
+		r.transferHost(command.playerIDs[0])
+		return
+	case "leave_room":
+		r.disconnect(command.client, true)
+		return
 	case "start_game":
 		err = r.prepareGame(command.client)
 		if err == nil && r.saveOrRestore(before, command.client) {
@@ -280,6 +392,10 @@ func (r *Room) handleCommand(command roomCommand) {
 			return
 		}
 		if err := command.settings.ValidateComposition(); err != nil {
+			r.queueGameError(command.client, err)
+			return
+		}
+		if err := command.settings.ValidateQuests(len(r.clients)); err != nil {
 			r.queueGameError(command.client, err)
 			return
 		}
@@ -335,6 +451,12 @@ func (r *Room) handleCommand(command roomCommand) {
 		if command.client.participant.Host && r.gameSettings.Total() != r.connectedGameStartPlayerCount() {
 			r.queueError(command.client, "The configured role count must match the connected player count before the host can ready up.")
 			return
+		}
+		if command.client.participant.Host {
+			if err := r.gameSettings.ValidateQuests(r.connectedGameStartPlayerCount()); err != nil {
+				r.queueGameError(command.client, err)
+				return
+			}
 		}
 		playerID := command.client.participant.ID
 		wasReady := r.gameStartConfirmations[playerID]
@@ -423,7 +545,16 @@ func (r *Room) handleCommand(command roomCommand) {
 		if len(command.playerIDs) != 1 {
 			err = game.ErrInvalidTarget
 		} else {
-			_, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
+			var correct bool
+			correct, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
+			missedAssassination = err == nil && !correct
+			if missedAssassination {
+				roleConfirmationsChanged = !r.roleConfirmations[command.playerIDs[0]]
+				r.roleConfirmations[command.playerIDs[0]] = true
+				proposalResultCleared = r.proposalResultPending
+				r.proposalResultPending = false
+				r.proposalConfirmations = make(map[string]bool)
+			}
 		}
 	default:
 		return
@@ -436,9 +567,68 @@ func (r *Room) handleCommand(command roomCommand) {
 		return
 	}
 	r.broadcastEvent("game_updated", r.game.Snapshot())
+	if missedAssassination && roleConfirmationsChanged {
+		r.broadcastRoleConfirmations()
+	}
+	if missedAssassination && proposalResultCleared {
+		r.broadcastProposalConfirmations()
+	}
 	if command.kind == "vote_proposal" && r.proposalResultPending {
 		r.broadcastProposalConfirmations()
 	}
+}
+
+func randomParticipant(candidates []Participant) Participant {
+	if len(candidates) == 0 {
+		return Participant{}
+	}
+	index, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates))))
+	if err != nil {
+		return candidates[0]
+	}
+	return candidates[index.Int64()]
+}
+
+func (r *Room) currentHostID() string {
+	for id, participant := range r.participants {
+		if participant.Host {
+			return id
+		}
+	}
+	return ""
+}
+
+func (r *Room) transferHost(previousHostID string) bool {
+	candidates := make([]Participant, 0)
+	for _, participant := range r.participants {
+		if participant.ID != previousHostID && participant.Connected {
+			candidates = append(candidates, participant)
+		}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	selected := r.chooseHost(candidates)
+	if r.onHostTransfer != nil {
+		if err := r.onHostTransfer(r.id, selected.ID); err != nil {
+			log.Printf("transfer host in room %s: %v", r.id, err)
+			r.broadcastEvent("error", map[string]string{"message": "The room could not assign a new host. Please try reconnecting."})
+			return false
+		}
+	}
+	for id, participant := range r.participants {
+		participant.Host = id == selected.ID
+		r.participants[id] = participant
+		if connection := r.connections[id]; connection != nil {
+			connection.participant.Host = participant.Host
+		}
+	}
+	r.hostReservationExpires = time.Time{}
+	r.hostTransferGeneration++
+	selected.Host = true
+	r.broadcastEvent("host_transferred", selected)
+	return true
 }
 
 func (r *Room) clientExists(client *Client) bool {
@@ -569,7 +759,7 @@ func (r *Room) pendingRoleConfirmations() []game.Player {
 	state := r.game.Snapshot()
 	pending := make([]game.Player, 0, len(state.Players))
 	for _, player := range state.Players {
-		if !r.roleConfirmations[player.ID] {
+		if !player.Dead && !r.roleConfirmations[player.ID] {
 			pending = append(pending, player)
 		}
 	}
@@ -586,7 +776,7 @@ func (r *Room) pendingProposalConfirmations() []game.Player {
 	state := r.game.Snapshot()
 	pending := make([]game.Player, 0, len(state.Players))
 	for _, player := range state.Players {
-		if !r.proposalConfirmations[player.ID] {
+		if !player.Dead && !r.proposalConfirmations[player.ID] {
 			pending = append(pending, player)
 		}
 	}
@@ -631,6 +821,9 @@ func (r *Room) restore(state persistedRoom) error {
 	if r.gameStarting {
 		if err := r.gameSettings.ValidateComposition(); err != nil {
 			return fmt.Errorf("restore pending game settings: %w", err)
+		}
+		if err := r.gameSettings.ValidateQuests(len(r.gameStartPlayers)); err != nil {
+			return fmt.Errorf("restore pending quest settings: %w", err)
 		}
 	}
 	return nil
@@ -680,12 +873,16 @@ func (r *Room) queueGameError(client *Client, err error) {
 		message = "At least three players are needed."
 	case errors.Is(err, game.ErrInvalidSettings):
 		message = "Role settings must include both factions and have at most one Merlin and one Assassin."
+	case errors.Is(err, game.ErrInvalidQuestRules):
+		message = "Each quest needs a valid team size, and its failures needed must be between one and the team size."
 	case errors.Is(err, errOnlyHost):
 		message = "Only the host can start a game."
 	case errors.Is(err, game.ErrNotCaptain):
 		message = "Only the current captain can choose the quest team."
 	case errors.Is(err, game.ErrInvalidQuest):
 		message = fmt.Sprintf("Choose exactly %d different players.", r.game.Snapshot().QuestSize)
+	case errors.Is(err, game.ErrDeadPlayer):
+		message = "Dead players cannot choose teams, join quests, or vote."
 	case errors.Is(err, game.ErrMissingQuestRule):
 		message = "No quest-size rule is configured for this lobby."
 	case errors.Is(err, game.ErrNotProposalVoter):

@@ -32,7 +32,10 @@ type clientCommand struct {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.room.unregister <- c
+		select {
+		case c.room.unregister <- c:
+		case <-c.room.done:
+		}
 		c.connection.Close()
 	}()
 
@@ -52,7 +55,7 @@ func (c *Client) readPump() {
 			continue
 		}
 		switch command.Type {
-		case "start_game", "update_game_settings", "cancel_game_start", "end_game", "confirm_game_start", "confirm_role", "confirm_proposal_result", "propose_quest", "vote_proposal", "play_quest", "assassinate":
+		case "leave_room", "start_game", "update_game_settings", "cancel_game_start", "end_game", "confirm_game_start", "confirm_role", "confirm_proposal_result", "propose_quest", "vote_proposal", "play_quest", "assassinate":
 			c.room.commands <- roomCommand{
 				client: c, kind: command.Type,
 				playerIDs: command.PlayerIDs, choice: command.Choice, settings: command.Settings,

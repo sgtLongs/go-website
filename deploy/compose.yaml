@@ -38,6 +38,23 @@ services:
       start_period: 5s
       retries: 6
 
+  dev:
+    image: "${DEV_IMAGE:-ghcr.io/sgtlongs/go-website:dev}"
+    restart: unless-stopped
+    environment:
+      ADDRESS: ":8080"
+      BASE_PATH: "/dev"
+      DATA_PATH: "/app/data/game.db"
+      GIN_MODE: "release"
+    volumes:
+      - dev-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/dev/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+
   beta:
     image: "${BETA_IMAGE:-ghcr.io/sgtlongs/go-website:beta}"
     restart: unless-stopped
@@ -65,3 +82,5 @@ volumes:
     name: go-website_game-data
   beta-data:
     name: go-website_beta-game-data
+  dev-data:
+    name: go-website_dev-game-data

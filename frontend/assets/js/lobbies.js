@@ -12,7 +12,7 @@
     const joinError = document.querySelector("#join-error");
     let selectedLobby;
 
-    document.querySelector("#refresh").addEventListener("click", loadLobbies);
+    document.querySelector("#refresh").addEventListener("click", () => loadLobbies());
     document.querySelector("#open-create").addEventListener("click", () => {
         createForm.reset();
         createError.textContent = "";
@@ -48,19 +48,22 @@
         joinError.textContent = await errorMessage(response);
     });
 
-    async function loadLobbies() {
-        status.hidden = false;
-        status.textContent = "Loading…";
-        list.replaceChildren();
+    async function loadLobbies({silent = false} = {}) {
+        if (!silent) {
+            status.hidden = false;
+            status.textContent = "Loading…";
+            list.replaceChildren();
+        }
         try {
             const response = await fetch(appURL("api/lobbies"));
             if (!response.ok) throw new Error("Could not load lobbies");
             const {lobbies} = await response.json();
             status.textContent = lobbies.length ? "" : "No lobbies yet. Create the first one.";
             status.hidden = lobbies.length > 0;
+            list.replaceChildren();
             for (const lobby of lobbies) list.append(lobbyItem(lobby));
         } catch (error) {
-            status.textContent = error.message;
+            if (!silent) status.textContent = error.message;
         }
     }
 
@@ -95,4 +98,5 @@
     }
 
     loadLobbies();
+    window.setInterval(() => loadLobbies({silent: true}), 5000);
 })();

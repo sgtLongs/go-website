@@ -9,9 +9,15 @@ type Event struct {
 }
 
 type Participant struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Host bool   `json:"host"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Host      bool   `json:"host"`
+	Connected bool   `json:"connected"`
+}
+
+type rosterUpdate struct {
+	Participant
+	GameSettings game.Settings `json:"gameSettings"`
 }
 
 type presenceSnapshot struct {
