@@ -7,3 +7,4 @@ compose.yaml
 Dockerfile
 *.db
 *.log
+*_test.go

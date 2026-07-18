@@ -36,7 +36,12 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test ./...
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_at=$SECONDS
+          go test ./...
+          echo "Tests completed in $((SECONDS - started_at))s."
 
       - name: Select deployment target
         id: target
@@ -93,6 +98,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Start image publish timer
+        shell: bash
+        run: echo "IMAGE_PUBLISH_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build and publish immutable image
         uses: docker/build-push-action@v7
         with:
@@ -106,6 +115,15 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+
+      - name: Report image publish duration
+        shell: bash
+        run: |
+          set -euo pipefail
+          elapsed=$(( $(date +%s) - IMAGE_PUBLISH_STARTED_AT ))
+          echo "Image build and publish completed in ${elapsed}s."
+          echo "### Build timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image build and publish: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy ${{ needs.build.outputs.environment }}
