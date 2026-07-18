@@ -289,6 +289,7 @@ body.gameplay-active #game-panel { padding: .75rem; }
 }
 
 .room-shell { width: min(92vw, 760px); padding: 2rem 0; }
+.waiting-sidebar-toggle { position: fixed; z-index: 2; top: 1.25rem; left: 1.25rem; }
 .eyebrow { color: #75dfa9; text-transform: uppercase; letter-spacing: .16em; }
 h1 { margin-top: 0; font-size: clamp(2rem, 7vw, 4rem); overflow-wrap: anywhere; }
 .panel { margin-bottom: 1rem; padding: 1.5rem; border: 1px solid #426356; border-radius: 1rem; background: #18211ecc; }

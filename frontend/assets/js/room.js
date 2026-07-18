@@ -64,6 +64,7 @@
     const gameError = byID("game-error");
     const sidebar = byID("room-sidebar");
     const sidebarToggle = byID("sidebar-toggle");
+    const waitingSidebarToggle = byID("waiting-sidebar-toggle");
     const captainSidebarToggle = byID("captain-sidebar-toggle");
     const gameStartingSidebarToggle = byID("game-starting-sidebar-toggle");
     const sidebarClose = byID("sidebar-close");
@@ -157,6 +158,7 @@
     displayName.value = storedDisplayName;
 
     sidebarToggle.addEventListener("click", openSidebar);
+    waitingSidebarToggle.addEventListener("click", openSidebar);
     captainSidebarToggle.addEventListener("click", openSidebar);
     gameStartingSidebarToggle.addEventListener("click", openSidebar);
     sidebarClose.addEventListener("click", closeSidebar);
@@ -743,6 +745,7 @@
         sidebar.classList.add("open");
         sidebar.setAttribute("aria-hidden", "false");
         sidebarToggle.setAttribute("aria-expanded", "true");
+        waitingSidebarToggle.setAttribute("aria-expanded", "true");
         captainSidebarToggle.setAttribute("aria-expanded", "true");
         gameStartingSidebarToggle.setAttribute("aria-expanded", "true");
         sidebarBackdrop.hidden = false;
@@ -754,6 +757,7 @@
         sidebar.classList.remove("open");
         sidebar.setAttribute("aria-hidden", "true");
         sidebarToggle.setAttribute("aria-expanded", "false");
+        waitingSidebarToggle.setAttribute("aria-expanded", "false");
         captainSidebarToggle.setAttribute("aria-expanded", "false");
         gameStartingSidebarToggle.setAttribute("aria-expanded", "false");
         sidebarBackdrop.hidden = true;
@@ -1739,6 +1743,7 @@
 
     function showOnly(view) {
         waitingView.hidden = view !== waitingView;
+        waitingSidebarToggle.hidden = view !== waitingView;
         activeView.hidden = view !== activeView;
         endedView.hidden = view !== endedView;
     }
