@@ -416,6 +416,17 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .role-reveal.revealed.traitor { border-color: #a96161; background: radial-gradient(circle at top, #713838, #160f0f 65%); color: #ffabab; }
 .role-reveal.revealed.merlin { border-color: #5da9ff; background: #092e5e; color: #fff; }
 .role-reveal.revealed.assassin { border-color: #6c2b2b; background: radial-gradient(circle at top, #2a2a2a, #140909 65%); color: #8f1f1f; }
+.role-reveal.assassinated,
+.role-reveal.assassinated:disabled {
+    border: 1px solid #a96161;
+    background: #3b2020;
+    color: #ffc1c1;
+    cursor: not-allowed;
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+    font-weight: 900;
+    opacity: 1;
+    text-transform: uppercase;
+}
 .assassin-role-action {
     position: relative;
     width: min(100%, 28rem);

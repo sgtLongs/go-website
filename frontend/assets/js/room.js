@@ -258,6 +258,7 @@
         gameSettingsDialog.close();
     });
     roleReveal.addEventListener("click", () => {
+        if (isDeadPlayer(playerID)) return;
         roleRevealed = !roleRevealed;
         if (!roleRevealed) closeMerlinKnowledge();
         renderRole();
@@ -1458,12 +1459,15 @@
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
         const dead = isDeadPlayer(playerID);
         const assignedRole = role ? formatRole(role) : (isPlayer ? "Assigning…" : "Spectator");
-        roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
-        roleRevealHint.hidden = !roleRevealed;
-        roleReveal.classList.toggle("revealed", roleRevealed);
-        roleReveal.classList.toggle("traitor", roleRevealed && role === "traitor");
-        roleReveal.classList.toggle("merlin", roleRevealed && role === "merlin");
-        roleReveal.classList.toggle("assassin", roleRevealed && role === "assassin");
+        if (dead) roleRevealed = false;
+        roleElement.textContent = dead ? "Assassinated" : roleRevealed ? assignedRole : "Reveal Secret Role";
+        roleRevealHint.hidden = dead || !roleRevealed;
+        roleReveal.disabled = dead;
+        roleReveal.classList.toggle("assassinated", dead);
+        roleReveal.classList.toggle("revealed", !dead && roleRevealed);
+        roleReveal.classList.toggle("traitor", !dead && roleRevealed && role === "traitor");
+        roleReveal.classList.toggle("merlin", !dead && roleRevealed && role === "merlin");
+        roleReveal.classList.toggle("assassin", !dead && roleRevealed && role === "assassin");
         const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination && !dead;
         const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active && !dead;
         roleReveal.hidden = showAssassinAction || showMerlinAction;
