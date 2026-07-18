@@ -15,12 +15,12 @@ type Service struct {
 	manager *Manager
 }
 
-func NewService(onEmpty func(string)) *Service {
-	return &Service{manager: NewManager(onEmpty)}
+func NewService(onEmpty func(string), onHostTransfer ...func(string, string) error) *Service {
+	return &Service{manager: NewManager(onEmpty, onHostTransfer...)}
 }
 
-func NewPersistentService(store *persistence.Store, onEmpty func(string)) (*Service, error) {
-	manager, err := NewPersistentManager(store, onEmpty)
+func NewPersistentService(store *persistence.Store, onEmpty func(string), onHostTransfer ...func(string, string) error) (*Service, error) {
+	manager, err := NewPersistentManager(store, onEmpty, onHostTransfer...)
 	if err != nil {
 		return nil, err
 	}

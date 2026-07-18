@@ -85,6 +85,9 @@
     const confirmAssassination = byID("confirm-assassination");
     const cancelAssassination = byID("cancel-assassination");
     const assassinationStatus = byID("assassination-status");
+    const hostReceivedDialog = byID("host-received-dialog");
+    const acknowledgeHost = byID("acknowledge-host");
+    const hostTransferToast = byID("host-transfer-toast");
 
     const participants = new Map();
     const autoJoinKey = `${storagePrefix}room-auto-join:${roomID}`;
@@ -132,6 +135,7 @@
     let gameStartPulseTimer;
     let unreadyGlowTimer;
     let gameStartingWarningTimer;
+    let hostTransferToastTimer;
     let gameState = null;
     let phaseKey = "";
     let submittedProposalVote = false;
@@ -291,6 +295,7 @@
     leaveRoomDialog.addEventListener("click", (event) => {
         if (event.target === leaveRoomDialog) leaveRoomDialog.close();
     });
+    acknowledgeHost.addEventListener("click", () => hostReceivedDialog.close());
     assassinatePlayerButton.addEventListener("click", () => {
         closeSidebar(false);
         openAssassinationDialog();
@@ -644,6 +649,17 @@
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
                 if (gameStarting) renderGameStarting();
+            } else if (event.type === "host_transferred") {
+                for (const person of participants.values()) person.host = person.id === event.data.id;
+                participants.set(event.data.id, event.data);
+                isHost = event.data.id === playerID;
+                renderGame();
+                renderGameStarting();
+                if (isHost) {
+                    if (!hostReceivedDialog.open) hostReceivedDialog.showModal();
+                } else {
+                    showHostTransferToast(`${event.data.name} is now the room host.`);
+                }
             } else if (event.type === "game_started") {
                 // Keep the starting screen covering the room until the following
                 // role_assigned event is ready to replace it. WebSocket messages
@@ -754,6 +770,15 @@
     function send(command) {
         gameError.textContent = "";
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
+    }
+
+    function showHostTransferToast(message) {
+        window.clearTimeout(hostTransferToastTimer);
+        hostTransferToast.textContent = message;
+        hostTransferToast.hidden = false;
+        hostTransferToastTimer = window.setTimeout(() => {
+            hostTransferToast.hidden = true;
+        }, 5000);
     }
 
     function openSidebar(event) {

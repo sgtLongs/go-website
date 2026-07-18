@@ -202,6 +202,48 @@ func (s *Service) IsHost(id, token string) bool {
 	return ok && grant.host && grant.lobbyID == id && s.now().Before(grant.expiresAt)
 }
 
+// TransferHost makes one participant the sole host for a lobby. Every grant
+// for the previous host is demoted so an old browser session cannot restore
+// host privileges after a realtime-room handoff.
+func (s *Service) TransferHost(id, participantID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.lobbies[id]; !exists {
+		return ErrNotFound
+	}
+
+	updated := make(map[string]accessGrant)
+	entries := make([]persistence.Entry, 0)
+	found := false
+	for key, grant := range s.grants {
+		if grant.lobbyID != id {
+			continue
+		}
+		grant.host = grant.participantID == participantID
+		found = found || grant.host
+		updated[key] = grant
+		if s.store != nil {
+			encoded, err := marshalGrant(grant)
+			if err != nil {
+				return err
+			}
+			entries = append(entries, persistence.Entry{Bucket: persistence.GrantsBucket, Key: []byte(key), Value: encoded})
+		}
+	}
+	if !found {
+		return ErrNotFound
+	}
+	if s.store != nil {
+		if err := s.store.PutAll(entries...); err != nil {
+			return err
+		}
+	}
+	for key, grant := range updated {
+		s.grants[key] = grant
+	}
+	return nil
+}
+
 // ResolveParticipant binds a display name to a lobby access grant once and
 // returns the stable, server-owned identity on every later connection.
 func (s *Service) ResolveParticipant(id, token, requestedName string) (participantID, displayName string, host, ok bool) {

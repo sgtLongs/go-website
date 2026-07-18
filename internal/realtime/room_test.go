@@ -134,6 +134,84 @@ func TestExplicitLeaveRemovesParticipantFromRoster(t *testing.T) {
 	}
 }
 
+func TestHostLeaveImmediatelyTransfersHost(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guestOne := testClient(room, "Guest One", false)
+	guestTwo := testClient(room, "Guest Two", false)
+	room.chooseHost = func([]Participant) Participant { return guestTwo.participant }
+	var transferredTo string
+	room.onHostTransfer = func(roomID, participantID string) error {
+		if roomID != room.id {
+			t.Fatalf("transfer room = %q, want %q", roomID, room.id)
+		}
+		transferredTo = participantID
+		return nil
+	}
+	for _, client := range []*Client{host, guestOne, guestTwo} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	room.handleCommand(roomCommand{client: host, kind: "leave_room"})
+
+	if transferredTo != guestTwo.participant.ID || !guestTwo.participant.Host || guestOne.participant.Host {
+		t.Fatalf("transfer = %q; guest hosts = %v, %v", transferredTo, guestOne.participant.Host, guestTwo.participant.Host)
+	}
+	for _, recipient := range []*Client{guestOne, guestTwo} {
+		if event := receiveEvent(t, recipient); event.Type != "user_left" {
+			t.Fatalf("first event = %q, want user_left", event.Type)
+		}
+		if event := receiveEvent(t, recipient); event.Type != "host_transferred" {
+			t.Fatalf("second event = %q, want host_transferred", event.Type)
+		}
+	}
+}
+
+func TestDisconnectedHostIsReservedUntilGraceExpires(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	room.chooseHost = func([]Participant) Participant { return guest.participant }
+	for _, client := range []*Client{host, guest} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	before := time.Now()
+	if !room.disconnect(host, false) {
+		t.Fatal("host was not disconnected")
+	}
+	_ = receiveEvent(t, guest)
+	if !room.participants[host.participant.ID].Host || guest.participant.Host {
+		t.Fatal("host changed before the disconnect grace period elapsed")
+	}
+	wantExpiry := before.Add(5 * time.Minute)
+	if room.hostReservationExpires.Before(wantExpiry.Add(-time.Second)) || room.hostReservationExpires.After(wantExpiry.Add(time.Second)) {
+		t.Fatalf("host reservation expires at %v, want about %v", room.hostReservationExpires, wantExpiry)
+	}
+	generation := room.hostTransferGeneration
+	room.handleCommand(roomCommand{kind: "transfer_host", playerIDs: []string{host.participant.ID}, generation: generation})
+	if guest.participant.Host {
+		t.Fatal("host transferred while the reservation was active")
+	}
+
+	room.hostReservationExpires = time.Now().Add(-time.Millisecond)
+	room.handleCommand(roomCommand{kind: "transfer_host", playerIDs: []string{host.participant.ID}, generation: generation})
+	if !guest.participant.Host || room.participants[host.participant.ID].Host {
+		t.Fatal("host was not transferred after the reservation expired")
+	}
+	if event := receiveEvent(t, guest); event.Type != "host_transferred" {
+		t.Fatalf("event = %q, want host_transferred", event.Type)
+	}
+}
+
 func TestEmptyRoomClosesAfterGracePeriod(t *testing.T) {
 	closed := make(chan struct{}, 1)
 	room := newRoom("game-room", func(*Room) { closed <- struct{}{} })

@@ -1,10 +1,12 @@
 package realtime
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"math/big"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -16,16 +18,18 @@ import (
 const (
 	roomSchemaVersion = 1
 	defaultEmptyGrace = 5 * time.Minute
+	defaultHostGrace  = 5 * time.Minute
 )
 
 var errOnlyHost = errors.New("only the host can start a game")
 
 type roomCommand struct {
-	client    *Client
-	kind      string
-	playerIDs []string
-	choice    bool
-	settings  game.Settings
+	client     *Client
+	kind       string
+	playerIDs  []string
+	choice     bool
+	settings   game.Settings
+	generation uint64
 }
 
 type persistedRoom struct {
@@ -65,6 +69,11 @@ type Room struct {
 	store                  *persistence.Store
 	emptyGrace             time.Duration
 	startsEmpty            bool
+	hostGrace              time.Duration
+	hostReservationExpires time.Time
+	hostTransferGeneration uint64
+	onHostTransfer         func(string, string) error
+	chooseHost             func([]Participant) Participant
 }
 
 func newRoom(id string, onEmpty func(*Room)) *Room {
@@ -88,6 +97,8 @@ func newRoomWithStore(id string, onEmpty func(*Room), store *persistence.Store) 
 		onEmpty:                onEmpty,
 		store:                  store,
 		emptyGrace:             defaultEmptyGrace,
+		hostGrace:              defaultHostGrace,
+		chooseHost:             randomParticipant,
 	}
 }
 
@@ -138,6 +149,11 @@ func (r *Room) run() {
 		case client := <-r.register:
 			stopEmptyTimer()
 			client.participant.Connected = true
+			if existing, known := r.participants[client.participant.ID]; known {
+				client.participant.Host = existing.Host
+			} else if r.currentHostID() != "" {
+				client.participant.Host = false
+			}
 			if previous := r.connections[client.participant.ID]; previous != nil && previous != client {
 				delete(r.clients, previous)
 				close(previous.send)
@@ -147,6 +163,10 @@ func (r *Room) run() {
 			r.clients[client] = struct{}{}
 			r.connections[client.participant.ID] = client
 			r.participants[client.participant.ID] = client.participant
+			if client.participant.Host {
+				r.hostReservationExpires = time.Time{}
+				r.hostTransferGeneration++
+			}
 			rosterChanged := false
 			if r.gameStarting && !r.gameStartHasPlayer(client.participant.ID) {
 				r.gameStartPlayers = append(r.gameStartPlayers, game.Player{ID: client.participant.ID, Name: client.participant.Name})
@@ -161,6 +181,9 @@ func (r *Room) run() {
 			}
 			r.sendSnapshot(client)
 			r.broadcastEvent("user_joined", client.participant)
+			if !r.hostReservationExpires.IsZero() && !time.Now().Before(r.hostReservationExpires) && !client.participant.Host {
+				r.transferHost(r.currentHostID())
+			}
 			if rosterChanged {
 				r.broadcastGameStartRoster()
 			}
@@ -201,11 +224,27 @@ func (r *Room) disconnect(client *Client, departed bool) bool {
 	if departed {
 		delete(r.participants, client.participant.ID)
 		r.broadcastEvent("user_left", client.participant)
+		if client.participant.Host {
+			r.hostReservationExpires = time.Time{}
+			r.hostTransferGeneration++
+			r.transferHost(client.participant.ID)
+		}
 	} else {
 		participant := client.participant
 		participant.Connected = false
 		r.participants[participant.ID] = participant
 		r.broadcastEvent("user_disconnected", participant)
+		if participant.Host {
+			r.hostReservationExpires = time.Now().Add(r.hostGrace)
+			r.hostTransferGeneration++
+			generation := r.hostTransferGeneration
+			time.AfterFunc(r.hostGrace, func() {
+				select {
+				case r.commands <- roomCommand{kind: "transfer_host", playerIDs: []string{participant.ID}, generation: generation}:
+				case <-r.done:
+				}
+			})
+		}
 	}
 	if r.gameStarting && r.gameStartHasPlayer(client.participant.ID) {
 		for index, player := range r.gameStartPlayers {
@@ -275,6 +314,12 @@ func (r *Room) handleCommand(command roomCommand) {
 	before := r.state()
 	var err error
 	switch command.kind {
+	case "transfer_host":
+		if command.generation != r.hostTransferGeneration || len(command.playerIDs) != 1 || time.Now().Before(r.hostReservationExpires) {
+			return
+		}
+		r.transferHost(command.playerIDs[0])
+		return
 	case "leave_room":
 		r.disconnect(command.client, true)
 		return
@@ -454,6 +499,59 @@ func (r *Room) handleCommand(command roomCommand) {
 	if command.kind == "vote_proposal" && r.proposalResultPending {
 		r.broadcastProposalConfirmations()
 	}
+}
+
+func randomParticipant(candidates []Participant) Participant {
+	if len(candidates) == 0 {
+		return Participant{}
+	}
+	index, err := rand.Int(rand.Reader, big.NewInt(int64(len(candidates))))
+	if err != nil {
+		return candidates[0]
+	}
+	return candidates[index.Int64()]
+}
+
+func (r *Room) currentHostID() string {
+	for id, participant := range r.participants {
+		if participant.Host {
+			return id
+		}
+	}
+	return ""
+}
+
+func (r *Room) transferHost(previousHostID string) bool {
+	candidates := make([]Participant, 0)
+	for _, participant := range r.participants {
+		if participant.ID != previousHostID && participant.Connected {
+			candidates = append(candidates, participant)
+		}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].ID < candidates[j].ID })
+	selected := r.chooseHost(candidates)
+	if r.onHostTransfer != nil {
+		if err := r.onHostTransfer(r.id, selected.ID); err != nil {
+			log.Printf("transfer host in room %s: %v", r.id, err)
+			r.broadcastEvent("error", map[string]string{"message": "The room could not assign a new host. Please try reconnecting."})
+			return false
+		}
+	}
+	for id, participant := range r.participants {
+		participant.Host = id == selected.ID
+		r.participants[id] = participant
+		if connection := r.connections[id]; connection != nil {
+			connection.participant.Host = participant.Host
+		}
+	}
+	r.hostReservationExpires = time.Time{}
+	r.hostTransferGeneration++
+	selected.Host = true
+	r.broadcastEvent("host_transferred", selected)
+	return true
 }
 
 func (r *Room) clientExists(client *Client) bool {

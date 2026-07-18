@@ -165,6 +165,8 @@ body.gameplay-active #game-panel { padding: .75rem; }
 #game-starting-settings { border: 1px solid #7596b0; background: #253848; color: #e6f3ff; }
 .game-starting-status { min-height: 1.5em; color: #bac3bf; font-weight: 700; }
 .game-starting-warning-toast { position: fixed; z-index: 4; right: 1rem; bottom: max(1rem, env(safe-area-inset-bottom)); left: 1rem; width: min(calc(100% - 2rem), 36rem); margin: 0 auto; padding: 1rem 1.25rem; border: 1px solid #e38b8b; border-radius: .75rem; background: #3b2020; color: #ffc1c1; box-shadow: 0 .75rem 2rem #0009; font-weight: 800; text-align: center; animation: team-rejected-toast-in .22s ease-out; }
+.host-transfer-toast { position: fixed; z-index: 1005; right: 1rem; top: max(1rem, env(safe-area-inset-top)); width: min(calc(100% - 2rem), 28rem); margin: 0; padding: 1rem 1.25rem; border: 1px solid #75dfa9; border-radius: .75rem; background: #18372b; color: #c9ffe4; box-shadow: 0 .75rem 2rem #0009; font-weight: 800; text-align: center; animation: team-rejected-toast-in .22s ease-out; }
+.host-received-dialog { border-color: #75dfa9; }
 #game-starting-ready[aria-disabled="true"] { background: #567066; color: #c5d0cb; }
 
 .proposal-result-announcement {

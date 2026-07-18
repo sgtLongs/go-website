@@ -10,6 +10,15 @@
 </head>
 <body>
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+    <dialog id="host-received-dialog" class="end-game-dialog host-received-dialog" aria-labelledby="host-received-title" aria-describedby="host-received-description">
+        <p class="eyebrow">Room host</p>
+        <h2 id="host-received-title">You are the new host</h2>
+        <p id="host-received-description">The previous host left, so the room controls have been passed to you.</p>
+        <div class="dialog-actions">
+            <button id="acknowledge-host" type="button">Got it</button>
+        </div>
+    </dialog>
+    <p id="host-transfer-toast" class="host-transfer-toast" role="status" aria-live="polite" hidden></p>
     <aside id="room-sidebar" class="room-sidebar" aria-label="Room menu" aria-hidden="true">
         <div class="sidebar-header">
             <h2>Room menu</h2>
