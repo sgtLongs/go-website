@@ -134,6 +134,51 @@ func TestExplicitLeaveRemovesParticipantFromRoster(t *testing.T) {
 	}
 }
 
+func TestRosterChangeRefreshesConfiguredQuestSettings(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "One", false),
+		testClient(room, "Two", false),
+		testClient(room, "Three", false),
+		testClient(room, "Four", false),
+		testClient(room, "Five", false),
+	}
+	for _, client := range clients {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+	room.gameSettings = game.Settings{
+		Minions: 2, Innocents: 2, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{6, 6, 6, 6, 6},
+		QuestFailThresholds: [game.TotalRounds]int{2, 2, 2, 2, 2},
+	}
+
+	if !room.disconnect(clients[5], true) {
+		t.Fatal("connected player was not removed")
+	}
+	wantSizes := [game.TotalRounds]int{2, 3, 2, 3, 3}
+	wantFailures := [game.TotalRounds]int{1, 1, 1, 1, 1}
+	if room.gameSettings.QuestSizes != wantSizes || room.gameSettings.QuestFailThresholds != wantFailures {
+		t.Fatalf("quest settings after leave = %v/%v, want %v/%v", room.gameSettings.QuestSizes, room.gameSettings.QuestFailThresholds, wantSizes, wantFailures)
+	}
+	event := receiveEvent(t, clients[0])
+	encoded, err := json.Marshal(event.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var update rosterUpdate
+	if err := json.Unmarshal(encoded, &update); err != nil {
+		t.Fatal(err)
+	}
+	if update.GameSettings.QuestSizes != wantSizes {
+		t.Fatalf("broadcast quest sizes = %v, want %v", update.GameSettings.QuestSizes, wantSizes)
+	}
+}
+
 func TestHostLeaveImmediatelyTransfersHost(t *testing.T) {
 	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)

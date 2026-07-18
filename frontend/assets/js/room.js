@@ -662,12 +662,15 @@
                 }
             } else if (event.type === "user_joined") {
                 participants.set(event.data.id, event.data);
+                applyRosterGameSettings(event.data);
                 if (gameStarting) renderGameStarting();
             } else if (event.type === "user_disconnected") {
                 participants.set(event.data.id, event.data);
+                applyRosterGameSettings(event.data);
                 if (gameStarting) renderGameStarting();
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
+                applyRosterGameSettings(event.data);
                 if (gameStarting) renderGameStarting();
             } else if (event.type === "host_transferred") {
                 for (const person of participants.values()) person.host = person.id === event.data.id;
@@ -726,6 +729,7 @@
                 gameStartPlayers = event.data.players || [];
                 pendingGameStartConfirmations = event.data.pendingPlayers || [];
                 gameSettings = event.data.settings || gameSettings;
+                syncOpenQuestSettings();
                 gameStartConfirmed = !pendingGameStartConfirmations.some((player) => player.id === playerID);
                 if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
@@ -1173,6 +1177,26 @@
         } else {
             gameSettingsForm.elements.namedItem("minions").focus();
         }
+    }
+
+    function applyRosterGameSettings(data) {
+        if (data.gameSettings) gameSettings = data.gameSettings;
+        syncOpenQuestSettings();
+    }
+
+    function syncOpenQuestSettings() {
+        if (!gameSettingsDialog.open) return;
+        const playerCount = connectedGameStartPlayerCount();
+        const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        for (let round = 1; round <= 5; round += 1) {
+            const sizeInput = gameSettingsForm.elements.namedItem(`quest-size-${round}`);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            sizeInput.value = String(settings.questSizes[round - 1]);
+            sizeInput.max = String(playerCount);
+            failuresInput.value = String(settings.questFailThresholds[round - 1]);
+        }
+        syncQuestInputLimits(false);
+        renderGameSettingsValidation();
     }
 
     function readGameSettingsForm() {

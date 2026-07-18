@@ -68,6 +68,19 @@ func DefaultSettings(playerCount int) Settings {
 	return Settings{Innocents: playerCount - 2, Merlins: 1, Assassins: 1}
 }
 
+// DefaultQuestSettings returns the quest rules configured in quest_rules.json
+// and the default threshold of one failure per quest.
+func DefaultQuestSettings(playerCount int) Settings {
+	var settings Settings
+	for round := 1; round <= TotalRounds; round++ {
+		if size, exists := QuestSizeFor(playerCount, round); exists {
+			settings.QuestSizes[round-1] = size
+			settings.QuestFailThresholds[round-1] = 1
+		}
+	}
+	return settings
+}
+
 func (settings Settings) Validate(playerCount int) error {
 	if err := settings.ValidateComposition(); err != nil {
 		return err

@@ -15,6 +15,11 @@ type Participant struct {
 	Connected bool   `json:"connected"`
 }
 
+type rosterUpdate struct {
+	Participant
+	GameSettings game.Settings `json:"gameSettings"`
+}
+
 type presenceSnapshot struct {
 	Participants                  []Participant        `json:"participants"`
 	Game                          *game.Snapshot       `json:"game,omitempty"`

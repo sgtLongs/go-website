@@ -164,6 +164,7 @@ func (r *Room) run() {
 			r.clients[client] = struct{}{}
 			r.connections[client.participant.ID] = client
 			r.participants[client.participant.ID] = client.participant
+			r.refreshQuestSettings()
 			if client.participant.Host {
 				r.hostReservationExpires = time.Time{}
 				r.hostTransferGeneration++
@@ -181,7 +182,7 @@ func (r *Room) run() {
 				r.queueError(client, "The room could not be saved. Please try reconnecting.")
 			}
 			r.sendSnapshot(client)
-			r.broadcastEvent("user_joined", client.participant)
+			r.broadcastEvent("user_joined", r.rosterUpdate(client.participant))
 			if !r.hostReservationExpires.IsZero() && !time.Now().Before(r.hostReservationExpires) && !client.participant.Host {
 				r.transferHost(r.currentHostID())
 			}
@@ -224,9 +225,10 @@ func (r *Room) disconnect(client *Client, departed bool) bool {
 	delete(r.connections, client.participant.ID)
 	delete(r.clients, client)
 	r.count.Add(-1)
+	r.refreshQuestSettings()
 	if departed {
 		delete(r.participants, client.participant.ID)
-		r.broadcastEvent("user_left", client.participant)
+		r.broadcastEvent("user_left", r.rosterUpdate(client.participant))
 		if client.participant.Host {
 			r.hostReservationExpires = time.Time{}
 			r.hostTransferGeneration++
@@ -236,7 +238,7 @@ func (r *Room) disconnect(client *Client, departed bool) bool {
 		participant := client.participant
 		participant.Connected = false
 		r.participants[participant.ID] = participant
-		r.broadcastEvent("user_disconnected", participant)
+		r.broadcastEvent("user_disconnected", r.rosterUpdate(participant))
 		if participant.Host {
 			r.hostReservationExpires = time.Now().Add(r.hostGrace)
 			r.hostTransferGeneration++
@@ -288,10 +290,7 @@ func (r *Room) sendSnapshot(client *Client) {
 		PlayerID:     client.participant.ID,
 	}
 	state := r.game.Snapshot()
-	settings := r.gameSettings
-	if settings == (game.Settings{}) {
-		settings = game.DefaultSettings(len(r.clients))
-	}
+	settings := r.effectiveGameSettings()
 	snapshot.GameSettings = &settings
 	snapshot.GameStarting = r.gameStarting
 	if r.gameStarting {
@@ -315,6 +314,39 @@ func (r *Room) sendSnapshot(client *Client) {
 		}
 	}
 	r.queueEvent(client, Event{Type: "presence_snapshot", RoomID: r.id, Data: snapshot})
+}
+
+func (r *Room) effectiveGameSettings() game.Settings {
+	settings := r.gameSettings
+	if settings == (game.Settings{}) {
+		settings = game.DefaultSettings(len(r.clients))
+	}
+	defaults := game.DefaultQuestSettings(len(r.clients))
+	for index := range game.TotalRounds {
+		if settings.QuestSizes[index] == 0 {
+			settings.QuestSizes[index] = defaults.QuestSizes[index]
+		}
+		if settings.QuestFailThresholds[index] == 0 {
+			settings.QuestFailThresholds[index] = defaults.QuestFailThresholds[index]
+		}
+	}
+	return settings
+}
+
+// refreshQuestSettings preserves the host's role choices while resetting the
+// quest rules to the player-count entry in quest_rules.json. A zero value is
+// kept as the marker for fully automatic lobby settings.
+func (r *Room) refreshQuestSettings() {
+	if r.game.Active() || r.gameSettings == (game.Settings{}) {
+		return
+	}
+	defaults := game.DefaultQuestSettings(len(r.clients))
+	r.gameSettings.QuestSizes = defaults.QuestSizes
+	r.gameSettings.QuestFailThresholds = defaults.QuestFailThresholds
+}
+
+func (r *Room) rosterUpdate(participant Participant) rosterUpdate {
+	return rosterUpdate{Participant: participant, GameSettings: r.effectiveGameSettings()}
 }
 
 func (r *Room) handleCommand(command roomCommand) {

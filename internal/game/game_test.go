@@ -190,6 +190,17 @@ func TestQuestSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestDefaultQuestSettingsUsesConfiguredRules(t *testing.T) {
+	settings := DefaultQuestSettings(6)
+	want := [TotalRounds]int{2, 3, 4, 3, 4}
+	if settings.QuestSizes != want {
+		t.Fatalf("default quest sizes = %v, want %v", settings.QuestSizes, want)
+	}
+	if settings.QuestFailThresholds != [TotalRounds]int{1, 1, 1, 1, 1} {
+		t.Fatalf("default quest failure thresholds = %v, want all ones", settings.QuestFailThresholds)
+	}
+}
+
 func TestCustomQuestSizeAndFailureThreshold(t *testing.T) {
 	settings := Settings{
 		Minions: 2, Innocents: 2,
