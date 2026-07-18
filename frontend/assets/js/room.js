@@ -228,6 +228,7 @@
             }
             syncQuestInputLimits(false);
         }
+        updateRecommendedSettingsLock();
         if (event.target.name?.startsWith("quest-size-")) syncQuestInputLimits(true);
         renderGameSettingsValidation();
     });
@@ -1169,6 +1170,7 @@
         const playerCount = connectedGameStartPlayerCount();
         const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
         recommendedSettingsInput.checked = settings.recommendedSettings;
+        updateRecommendedSettingsLock();
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             const input = gameSettingsForm.elements.namedItem(name);
             input.value = String(settings[name] ?? 0);
@@ -1203,6 +1205,7 @@
         const playerCount = connectedGameStartPlayerCount();
         const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
         recommendedSettingsInput.checked = settings.recommendedSettings;
+        updateRecommendedSettingsLock();
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             gameSettingsForm.elements.namedItem(name).value = String(settings[name] ?? 0);
         }
@@ -1227,6 +1230,14 @@
             settings.questFailThresholds.push(Number(gameSettingsForm.elements.namedItem(`quest-fails-${round}`).value));
         }
         return settings;
+    }
+
+    function updateRecommendedSettingsLock() {
+        const locked = recommendedSettingsInput.checked;
+        gameSettingsForm.classList.toggle("recommended-lock", locked);
+        for (const input of gameSettingsForm.querySelectorAll('input[type="number"], .settings-count-step')) {
+            input.disabled = locked;
+        }
     }
 
     function validRoleSettings(settings) {
