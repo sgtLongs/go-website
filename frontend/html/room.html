@@ -44,7 +44,7 @@
     <dialog id="assassination-dialog" class="end-game-dialog assassination-dialog" aria-labelledby="assassination-title" aria-describedby="assassination-description">
         <p class="eyebrow">Assassin action</p>
         <h2 id="assassination-title">Who is Merlin?</h2>
-        <p id="assassination-description">You have one attempt. If you choose Merlin, the Minions of Mordred win immediately. If you are wrong, the game continues and everyone will know you are the Assassin.</p>
+        <p id="assassination-description">If you choose Merlin, the Minions of Mordred win. An incorrect early attempt eliminates that player and the game continues; during the final decision, an incorrect attempt gives the Servants of Arthur victory.</p>
         <form id="assassination-form">
             <fieldset id="assassination-options" class="assassination-options"></fieldset>
             <div class="dialog-actions">
@@ -167,6 +167,10 @@
             <p class="eyebrow">Your secret role</p>
             <p id="role-confirmation-title" class="role-confirmation-title"></p>
             <p id="role-confirmation-help" class="role-confirmation-help"></p>
+            <section id="fellow-minions" class="fellow-minions" aria-labelledby="fellow-minions-title" hidden>
+                <h2 id="fellow-minions-title">Your fellow Minions</h2>
+                <ul id="fellow-minion-list" class="fellow-minion-list"></ul>
+            </section>
             <p id="role-confirmation-action" class="role-confirmation-action">Click anywhere to confirm and continue</p>
         </div>
     </section>
@@ -316,6 +320,24 @@
                         </div>
                     </div>
                     <p id="quest-progress"></p>
+                </section>
+
+                <section id="assassination-view" class="phase-view assassination-view" hidden>
+                    <div id="assassination-controls" class="quest-team-selector" role="region" aria-labelledby="assassination-phase-title" aria-describedby="assassination-phase-description" hidden>
+                        <p class="eyebrow">Assassination phase</p>
+                        <h2 id="assassination-phase-title">You must choose one player to kill</h2>
+                        <p id="assassination-phase-description">Kill Merlin and the Minions of Mordred win. Kill anyone else and the Servants of Arthur win.</p>
+                        <form id="final-assassination-form">
+                            <fieldset id="final-assassination-options" class="quest-player-panel"></fieldset>
+                            <p id="assassination-selection-error" class="captain-selection-error" role="alert" hidden></p>
+                            <button class="danger" type="submit">Confirm assassination</button>
+                        </form>
+                    </div>
+                    <div id="waiting-for-assassin" class="player-status-view" role="status" aria-live="polite" hidden>
+                        <p class="eyebrow">Assassination phase</p>
+                        <h2>The Assassin is choosing</h2>
+                        <p>The Assassin must choose one player to kill. The winner will be revealed after their decision.</p>
+                    </div>
                 </section>
                 </div>
             </div>

@@ -147,10 +147,11 @@ func (settings Settings) questSizeFor(playerCount, round int) (int, bool) {
 type Phase string
 
 const (
-	ChoosingTeam Phase = "choosing_team"
-	VotingOnTeam Phase = "voting_on_team"
-	PlayingQuest Phase = "playing_quest"
-	GameComplete Phase = "complete"
+	ChoosingTeam  Phase = "choosing_team"
+	VotingOnTeam  Phase = "voting_on_team"
+	PlayingQuest  Phase = "playing_quest"
+	Assassinating Phase = "assassinating"
+	GameComplete  Phase = "complete"
 )
 
 type Player struct {
@@ -495,9 +496,9 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 	return true, nil
 }
 
-// Assassinate gives the Assassin one attempt during an active game. A correct
-// guess ends the game in a traitor victory; an incorrect guess reveals the
-// Assassin publicly, kills the target, and returns the round to team selection.
+// Assassinate resolves the final phase after the servants complete three
+// quests. A correct guess gives the Minions victory; any other target gives the
+// Servants victory.
 func (g *Engine) Assassinate(assassinID, targetID string) (bool, error) {
 	if !g.active {
 		return false, ErrNotActive
@@ -522,6 +523,8 @@ func (g *Engine) Assassinate(assassinID, targetID string) (bool, error) {
 	}
 	if correct {
 		g.finish(Traitor)
+	} else if g.phase == Assassinating {
+		g.finish(Innocent)
 	} else {
 		g.phase = ChoosingTeam
 		g.quest = nil
@@ -552,7 +555,8 @@ func (g *Engine) RoleFor(playerID string) (Role, bool) {
 }
 
 // KnownRolesFor returns only the role markers this player is allowed to see.
-// Merlin sees every traitor by faction but not their special role.
+// Merlin sees every traitor by faction but not their special role. Minions and
+// the Assassin see the exact roles of everyone in their faction.
 func (g *Engine) KnownRolesFor(playerID string) map[string]Role {
 	known := make(map[string]Role)
 	role, assigned := g.RoleFor(playerID)
@@ -566,8 +570,12 @@ func (g *Engine) KnownRolesFor(playerID string) map[string]Role {
 				known[id] = Traitor
 			}
 		}
-	} else if role == Assassin {
-		known[playerID] = Assassin
+	} else if isTraitor(role) {
+		for id, candidateRole := range g.roles {
+			if isTraitor(candidateRole) {
+				known[id] = candidateRole
+			}
+		}
 	}
 	return known
 }
@@ -850,7 +858,14 @@ func (g *Engine) resolveQuest(result QuestResult) {
 	}
 
 	if g.successful == WinningQuests {
-		g.finish(Innocent)
+		if g.settings.Assassins > 0 && g.settings.Merlins > 0 && g.assassination == nil {
+			g.phase = Assassinating
+			g.quest = nil
+			g.proposalVotes = nil
+			g.questCards = nil
+		} else {
+			g.finish(Innocent)
+		}
 	} else if g.failed == WinningQuests {
 		g.finish(Traitor)
 	} else {
@@ -958,7 +973,7 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 		return nil, errors.New("persisted game role assignments do not match its settings")
 	}
 	if state.Active {
-		if state.Phase != ChoosingTeam && state.Phase != VotingOnTeam && state.Phase != PlayingQuest {
+		if state.Phase != ChoosingTeam && state.Phase != VotingOnTeam && state.Phase != PlayingQuest && state.Phase != Assassinating {
 			return nil, errors.New("active persisted game has an invalid phase")
 		}
 	} else if state.Phase != "" && state.Phase != GameComplete {
@@ -1008,10 +1023,16 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 			return nil, errors.New("persisted game did not finish after Merlin was assassinated")
 		}
 		if !attempt.Correct && state.Active && state.Phase != ChoosingTeam {
-			return nil, errors.New("persisted game did not return to team selection after a missed assassination")
+			return nil, errors.New("persisted game did not return to team selection after an early missed assassination")
+		}
+		if !attempt.Correct && !state.Active && (state.Phase != GameComplete || state.Winner != Innocent) {
+			return nil, errors.New("persisted game did not finish after a final missed assassination")
 		}
 	} else if len(deadPlayers) != 0 {
 		return nil, errors.New("persisted game contains a dead player without an assassination")
+	}
+	if state.Phase == Assassinating && (state.Successful != WinningQuests || state.Settings.Assassins == 0 || state.Settings.Merlins == 0 || state.Winner != "" || state.Assassination != nil) {
+		return nil, errors.New("persisted game has an invalid assassination phase")
 	}
 	if state.Phase == GameComplete && state.Winner != Innocent && state.Winner != Traitor {
 		return nil, errors.New("completed persisted game has no winner")
