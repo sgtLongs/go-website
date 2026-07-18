@@ -17,6 +17,7 @@
     const activeView = byID("active-view");
     const endedView = byID("ended-view");
     const startForm = byID("start-form");
+    const lobbyGameSettings = byID("lobby-game-settings");
     const waitingMessage = byID("waiting-message");
     const nextGameMessage = byID("next-game-message");
     const roleElement = byID("role");
@@ -67,6 +68,7 @@
     const gameStartingSidebarToggle = byID("game-starting-sidebar-toggle");
     const sidebarClose = byID("sidebar-close");
     const sidebarBackdrop = byID("sidebar-backdrop");
+    const exitToLobbyButton = byID("exit-to-lobby");
     const endGameButton = byID("end-game");
     const endGameDialog = byID("end-game-dialog");
     const cancelEndGame = byID("cancel-end-game");
@@ -172,6 +174,10 @@
         closeSidebar(false);
         endGameDialog.showModal();
     });
+    exitToLobbyButton.addEventListener("click", () => {
+        closeSidebar(false);
+        send({ type: "cancel_game_start" });
+    });
     cancelEndGame.addEventListener("click", () => endGameDialog.close());
     confirmEndGame.addEventListener("click", () => {
         send({ type: "end_game" });
@@ -181,6 +187,7 @@
         if (event.target === endGameDialog) endGameDialog.close();
     });
     gameStartingSettings.addEventListener("click", openGameSettingsDialog);
+    lobbyGameSettings.addEventListener("click", openGameSettingsDialog);
     cancelGameSettings.addEventListener("click", () => gameSettingsDialog.close());
     gameSettingsDialog.addEventListener("click", (event) => {
         if (event.target === gameSettingsDialog) gameSettingsDialog.close();
@@ -678,12 +685,7 @@
                 if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
             } else if (event.type === "game_start_cancelled") {
-                gameStarting = false;
-                gameStartConfirmed = false;
-                pendingGameStartConfirmations = [];
-                gameStartPlayers = [];
-                renderGameStarting();
-                gameError.textContent = event.data.message;
+                resetToWaiting(event.data.message, event.data.settings);
             } else if (event.type === "game_updated") {
                 setGameState(event.data);
             } else if (event.type === "role_confirmations_updated") {
@@ -1024,10 +1026,12 @@
         gameStartingView.hidden = !shouldShow;
         gameStartingView.classList.toggle("player-ready", gameStarting && gameStartConfirmed);
         gameStartingSettings.hidden = !(isHost && gameStarting);
+        exitToLobbyButton.hidden = !(isHost && gameStarting);
         const rolePlayerMismatch = roleCountTotal(gameSettings) !== connectedGameStartPlayerCount();
         gameStartingReady.disabled = false;
         gameStartingReady.setAttribute("aria-disabled", String(isHost && rolePlayerMismatch));
         if (!rolePlayerMismatch) hideGameStartSettingsWarning();
+        else if (isHost && gameStarting) showGameStartSettingsWarning();
         if (gameSettingsDialog.open) renderGameSettingsValidation();
         readyMessage.textContent = gameStartCountdownActive ? "Everyone has readied up, the game will start shortly." : "Ready up to start";
         if (!shouldShow) return;
@@ -1070,8 +1074,8 @@
     }
 
     function openGameSettingsDialog() {
-        if (!isHost || !gameStarting) return;
-        const settings = gameSettings || defaultGameSettings(gameStartPlayers.length);
+        if (!isHost) return;
+        const settings = gameSettings || defaultGameSettings(connectedGameStartPlayerCount());
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             const input = gameSettingsForm.elements.namedItem(name);
             input.value = String(settings[name] ?? 0);
@@ -1143,7 +1147,9 @@
     }
 
     function connectedGameStartPlayerCount() {
-        return gameStartPlayers.filter((player) => participants.has(player.id)).length;
+        return gameStarting
+            ? gameStartPlayers.filter((player) => participants.has(player.id)).length
+            : participants.size;
     }
 
     function gameStartRoleWarning(roles, players) {
@@ -1642,14 +1648,14 @@
         if (isHost) endedView.append(startForm);
     }
 
-    function resetToWaiting(message) {
+    function resetToWaiting(message, settings = defaultGameSettings(connectedGameStartPlayerCount())) {
         window.clearInterval(gameStartCountdownTimer);
         gameStartCountdownActive = false;
         gameStarting = false;
         gameStartConfirmed = false;
         pendingGameStartConfirmations = [];
         gameStartPlayers = [];
-        gameSettings = defaultGameSettings(0);
+        gameSettings = settings || defaultGameSettings(connectedGameStartPlayerCount());
         if (gameSettingsDialog.open) gameSettingsDialog.close();
         renderGameStarting();
         gameState = null;
@@ -1677,6 +1683,7 @@
 
     function updateEndGameVisibility() {
         endGameButton.hidden = !(isHost && gameState?.phase && gameState.phase !== "complete");
+        exitToLobbyButton.hidden = !(isHost && gameStarting);
         updateAssassinationVisibility();
     }
 

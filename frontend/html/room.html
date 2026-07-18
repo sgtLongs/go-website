@@ -17,6 +17,7 @@
         </div>
         <nav aria-label="Room actions">
             <button id="assassinate-player" class="sidebar-action danger" type="button" hidden>Assassinate a Player</button>
+            <button id="exit-to-lobby" class="sidebar-action secondary" type="button" hidden>Exit to Lobby</button>
             <button id="end-game" class="sidebar-action danger" type="button" hidden>Exit Game</button>
             <button id="leave-room" class="sidebar-action secondary" type="button">Leave to Lobby Browser</button>
         </nav>
@@ -170,6 +171,7 @@
                 <p id="waiting-message">Waiting for the host to start a game.</p>
                 <form id="start-form" class="start-row" hidden>
                     <button type="submit">Start game</button>
+                    <button id="lobby-game-settings" class="secondary" type="button">Game settings</button>
                 </form>
             </div>
             <div id="active-view" hidden>

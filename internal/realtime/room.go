@@ -224,13 +224,16 @@ func (r *Room) sendSnapshot(client *Client) {
 		PlayerID:     client.participant.ID,
 	}
 	state := r.game.Snapshot()
+	settings := r.gameSettings
+	if settings == (game.Settings{}) {
+		settings = game.DefaultSettings(len(participants))
+	}
+	snapshot.GameSettings = &settings
 	snapshot.GameStarting = r.gameStarting
 	if r.gameStarting {
 		snapshot.PendingGameStartConfirmations = r.pendingGameStartConfirmations()
 		snapshot.GameStartPlayers = append([]game.Player(nil), r.gameStartPlayers...)
 		snapshot.GameStartConfirmed = r.gameStartConfirmations[client.participant.ID]
-		settings := r.gameSettings
-		snapshot.GameSettings = &settings
 	}
 	if state.Phase != "" {
 		snapshot.Game = &state
@@ -276,25 +279,37 @@ func (r *Room) handleCommand(command roomCommand) {
 			r.queueError(command.client, "Only the host can change game settings.")
 			return
 		}
-		if !r.gameStarting {
-			r.queueError(command.client, "Game settings can only be changed while players are readying up.")
-			return
-		}
 		if err := command.settings.ValidateComposition(); err != nil {
 			r.queueGameError(command.client, err)
 			return
 		}
 		if command.settings != r.gameSettings {
 			r.gameSettings = command.settings
-			r.gameStartConfirmations = make(map[string]bool, len(r.gameStartPlayers))
-			r.gameStartCountdown++
+			if r.gameStarting {
+				r.gameStartConfirmations = make(map[string]bool, len(r.gameStartPlayers))
+				r.gameStartCountdown++
+			}
 			if !r.saveOrRestore(before, command.client) {
 				return
 			}
 		}
-		r.broadcastEvent("game_settings_updated", map[string]any{
-			"settings": r.gameSettings, "pendingPlayers": r.pendingGameStartConfirmations(),
-		})
+		r.broadcastEvent("game_settings_updated", map[string]any{"settings": r.gameSettings, "pendingPlayers": r.pendingGameStartConfirmations()})
+		return
+	case "cancel_game_start":
+		if !command.client.participant.Host {
+			r.queueError(command.client, "Only the host can return the room to the lobby.")
+			return
+		}
+		if !r.gameStarting {
+			return
+		}
+		r.gameStarting = false
+		r.gameStartPlayers = nil
+		r.gameStartConfirmations = make(map[string]bool)
+		r.gameStartCountdown++
+		if r.saveOrRestore(before, command.client) {
+			r.broadcastEvent("game_start_cancelled", map[string]any{"message": "The host returned the room to the lobby.", "settings": r.gameSettings})
+		}
 		return
 	case "end_game":
 		if !command.client.participant.Host {
@@ -445,7 +460,9 @@ func (r *Room) prepareGame(client *Client) error {
 	r.gameStarting = true
 	r.gameStartPlayers = players
 	r.gameStartConfirmations = make(map[string]bool, len(players))
-	r.gameSettings = game.DefaultSettings(len(players))
+	if r.gameSettings == (game.Settings{}) {
+		r.gameSettings = game.DefaultSettings(len(players))
+	}
 	return nil
 }
 

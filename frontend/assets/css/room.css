@@ -306,6 +306,8 @@ ul { padding: 0; list-style: none; }
 li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .start-row { display: flex; align-items: end; gap: .75rem; }
 .start-row label { margin: 0; }
+#start-form { flex-direction: column; align-items: stretch; }
+#lobby-game-settings { background: #4c5652; color: #f3f7f5; }
 .quest-board { margin: 1rem 0; }
 #main-game-view > .quest-board { margin-top: 0; }
 .quest-board-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .65rem; }

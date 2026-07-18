@@ -316,6 +316,61 @@ func TestGuestCannotUpdatePendingGameSettings(t *testing.T) {
 	}
 }
 
+func TestHostCanExitGameStartingToLobby(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	third := testClient(room, "Third", false)
+	clients := []*Client{host, guest, third}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	if err := room.prepareGame(host); err != nil {
+		t.Fatal(err)
+	}
+	settings := room.gameSettings
+
+	room.handleCommand(roomCommand{client: host, kind: "cancel_game_start"})
+
+	if room.gameStarting || room.gameStartPlayers != nil || len(room.gameStartConfirmations) != 0 || room.gameSettings != settings {
+		t.Fatalf("game-start state was not cleared: starting=%v players=%#v confirmations=%#v settings=%#v", room.gameStarting, room.gameStartPlayers, room.gameStartConfirmations, room.gameSettings)
+	}
+	for _, client := range clients {
+		if event := receiveEvent(t, client); event.Type != "game_start_cancelled" {
+			t.Fatalf("event = %q, want game_start_cancelled", event.Type)
+		}
+	}
+}
+
+func TestHostCanSaveLobbySettingsBeforeStartingGame(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	third := testClient(room, "Third", false)
+	clients := []*Client{host, guest, third}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	settings := game.Settings{Minions: 1, Innocents: 3}
+
+	room.handleCommand(roomCommand{client: host, kind: "update_game_settings", settings: settings})
+	for _, client := range clients {
+		if event := receiveEvent(t, client); event.Type != "game_settings_updated" {
+			t.Fatalf("event = %q, want game_settings_updated", event.Type)
+		}
+	}
+	if room.gameSettings != settings || room.gameStarting {
+		t.Fatalf("lobby settings = %#v, game starting = %v; want %#v, false", room.gameSettings, room.gameStarting, settings)
+	}
+
+	if err := room.prepareGame(host); err != nil {
+		t.Fatal(err)
+	}
+	if room.gameSettings != settings {
+		t.Fatalf("starting settings = %#v, want lobby settings %#v", room.gameSettings, settings)
+	}
+}
+
 func TestHostCanSaveMismatchedRoleCountButCannotReady(t *testing.T) {
 	tests := map[string]game.Settings{
 		"more roles":  {Minions: 1, Innocents: 2, Merlins: 1},
