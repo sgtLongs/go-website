@@ -62,20 +62,20 @@ func (settings Settings) Total() int {
 }
 
 func DefaultSettings(playerCount int) Settings {
-	if playerCount < 2 {
-		return Settings{Innocents: playerCount}
+	if settings, exists := recommendedSettingsFor(playerCount); exists {
+		return settings
 	}
-	return Settings{Innocents: playerCount - 2, Merlins: 1, Assassins: 1}
+	return Settings{Innocents: playerCount}
 }
 
 // DefaultQuestSettings returns the quest rules configured in quest_rules.json
-// and the default threshold of one failure per quest.
+// including each quest's configured failure threshold.
 func DefaultQuestSettings(playerCount int) Settings {
 	var settings Settings
 	for round := 1; round <= TotalRounds; round++ {
 		if size, exists := QuestSizeFor(playerCount, round); exists {
 			settings.QuestSizes[round-1] = size
-			settings.QuestFailThresholds[round-1] = 1
+			settings.QuestFailThresholds[round-1], _ = QuestFailThresholdFor(playerCount, round)
 		}
 	}
 	return settings
@@ -123,7 +123,7 @@ func (settings Settings) ValidateQuests(playerCount int) error {
 		}
 		failures := settings.QuestFailThresholds[round-1]
 		if failures == 0 {
-			failures = 1
+			failures, _ = QuestFailThresholdFor(playerCount, round)
 		}
 		if failures < 1 || failures > size {
 			return ErrInvalidQuestRules
@@ -755,7 +755,7 @@ func (g *Engine) questFailsNeededForRound(round int) int {
 	}
 	failures := g.settings.QuestFailThresholds[round-1]
 	if failures == 0 {
-		failures = 1
+		failures, _ = QuestFailThresholdFor(g.livingPlayerCount(), round)
 	}
 	if size := g.questSizeForRound(round); failures > size {
 		failures = size

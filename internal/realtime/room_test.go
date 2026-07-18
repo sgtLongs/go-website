@@ -165,6 +165,11 @@ func TestRosterChangeRefreshesConfiguredQuestSettings(t *testing.T) {
 	if room.gameSettings.QuestSizes != wantSizes || room.gameSettings.QuestFailThresholds != wantFailures {
 		t.Fatalf("quest settings after leave = %v/%v, want %v/%v", room.gameSettings.QuestSizes, room.gameSettings.QuestFailThresholds, wantSizes, wantFailures)
 	}
+	wantRoles := game.Settings{Minions: 1, Innocents: 2, Merlins: 1, Assassins: 1}
+	if room.gameSettings.Minions != wantRoles.Minions || room.gameSettings.Innocents != wantRoles.Innocents ||
+		room.gameSettings.Merlins != wantRoles.Merlins || room.gameSettings.Assassins != wantRoles.Assassins {
+		t.Fatalf("role settings after leave = %#v, want recommended roles %#v", room.gameSettings, wantRoles)
+	}
 	event := receiveEvent(t, clients[0])
 	encoded, err := json.Marshal(event.Data)
 	if err != nil {

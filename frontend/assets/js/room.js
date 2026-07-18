@@ -1188,6 +1188,9 @@
         if (!gameSettingsDialog.open) return;
         const playerCount = connectedGameStartPlayerCount();
         const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
+        for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+            gameSettingsForm.elements.namedItem(name).value = String(settings[name] ?? 0);
+        }
         for (let round = 1; round <= 5; round += 1) {
             const sizeInput = gameSettingsForm.elements.namedItem(`quest-size-${round}`);
             const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
@@ -1317,10 +1320,16 @@
     }
 
     function defaultGameSettings(playerCount) {
-        const roles = playerCount >= 2
-            ? {minions: 0, innocents: playerCount - 2, merlins: 1, assassins: 1}
-            : {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
-        return {...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds: [1, 1, 1, 1, 1]};
+        const evilPlayers = playerCount >= 5 ? Math.min(4, Math.ceil(playerCount / 3)) : (playerCount >= 2 ? 1 : 0);
+        const specialRoles = playerCount >= 2 ? 2 : 0;
+        const roles = {
+            minions: Math.max(0, evilPlayers - (specialRoles ? 1 : 0)),
+            innocents: Math.max(0, playerCount - evilPlayers - (specialRoles ? 1 : 0)),
+            merlins: specialRoles ? 1 : 0,
+            assassins: specialRoles ? 1 : 0,
+        };
+        const questFailThresholds = [1, 1, 1, playerCount >= 7 ? 2 : 1, 1];
+        return {...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds};
     }
 
     function normalizeGameSettings(settings, playerCount) {

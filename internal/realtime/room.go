@@ -333,14 +333,18 @@ func (r *Room) effectiveGameSettings() game.Settings {
 	return settings
 }
 
-// refreshQuestSettings preserves the host's role choices while resetting the
-// quest rules to the player-count entry in quest_rules.json. A zero value is
-// kept as the marker for fully automatic lobby settings.
+// refreshQuestSettings resets roles and quests to the recommendations for the
+// current player count. A zero value marks fully automatic lobby settings.
 func (r *Room) refreshQuestSettings() {
 	if r.game.Active() || r.gameSettings == (game.Settings{}) {
 		return
 	}
 	defaults := game.DefaultQuestSettings(len(r.clients))
+	roles := game.DefaultSettings(len(r.clients))
+	r.gameSettings.Minions = roles.Minions
+	r.gameSettings.Innocents = roles.Innocents
+	r.gameSettings.Merlins = roles.Merlins
+	r.gameSettings.Assassins = roles.Assassins
 	r.gameSettings.QuestSizes = defaults.QuestSizes
 	r.gameSettings.QuestFailThresholds = defaults.QuestFailThresholds
 }

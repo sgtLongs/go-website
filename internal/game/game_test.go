@@ -191,13 +191,20 @@ func TestQuestSettingsValidation(t *testing.T) {
 }
 
 func TestDefaultQuestSettingsUsesConfiguredRules(t *testing.T) {
-	settings := DefaultQuestSettings(6)
-	want := [TotalRounds]int{2, 3, 4, 3, 4}
+	settings := DefaultQuestSettings(7)
+	want := [TotalRounds]int{2, 3, 3, 4, 4}
 	if settings.QuestSizes != want {
 		t.Fatalf("default quest sizes = %v, want %v", settings.QuestSizes, want)
 	}
-	if settings.QuestFailThresholds != [TotalRounds]int{1, 1, 1, 1, 1} {
-		t.Fatalf("default quest failure thresholds = %v, want all ones", settings.QuestFailThresholds)
+	if settings.QuestFailThresholds != [TotalRounds]int{1, 1, 1, 2, 1} {
+		t.Fatalf("default quest failure thresholds = %v, want round four to require two", settings.QuestFailThresholds)
+	}
+}
+
+func TestDefaultSettingsUsesRecommendedRoles(t *testing.T) {
+	want := Settings{Minions: 2, Innocents: 4, Merlins: 1, Assassins: 1}
+	if got := DefaultSettings(8); got != want {
+		t.Fatalf("default settings = %#v, want %#v", got, want)
 	}
 }
 
