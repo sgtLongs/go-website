@@ -5,16 +5,19 @@ PRODUCTION_VOLUME := go-website_game-data
 BETA_VOLUME := go-website_beta-game-data
 DEV_VOLUME := go-website_dev-game-data
 LOCAL_VOLUME := go-website_local-game-data
+DEV_WORKTREE_IMAGE ?= go-website:dev-working-tree
+DEPLOY_LOCK := /tmp/go-website-deploy.lock
 
 .DEFAULT_GOAL := help
 
-.PHONY: help status restart-local rebuild-local restart-dev restart-production reset-local reset-dev reset-production reset-beta
+.PHONY: help status restart-local rebuild-local rebuild-dev restart-dev restart-production reset-local reset-dev reset-production reset-beta
 
 help:
 	@echo "Available commands:"
 	@echo "  make status              Show local and deployed containers"
 	@echo "  make restart-local       Restart the existing port-8080 local app"
 	@echo "  make rebuild-local       Rebuild and recreate the port-8080 local app"
+	@echo "  make rebuild-dev         Build this working tree and recreate deployed /dev"
 	@echo "  make restart-dev         Restart the deployed /dev service"
 	@echo "  make restart-production  Restart the production service"
 	@echo "  make reset-local         Erase local data and restart local"
@@ -34,6 +37,28 @@ restart-local:
 
 rebuild-local:
 	@$(COMPOSE) up --build --detach --no-deps app
+
+rebuild-dev:
+	@set -eu; \
+	exec 9>$(DEPLOY_LOCK); \
+	if ! flock --wait 600 9; then \
+		echo "Timed out waiting for another deployment to finish." >&2; \
+		exit 1; \
+	fi; \
+	previous_container="$$( $(DEPLOY_COMPOSE) ps --quiet dev 2>/dev/null || true )"; \
+	previous_image=""; \
+	if [ -n "$$previous_container" ]; then \
+		previous_image="$$(docker inspect --format '{{.Image}}' "$$previous_container")"; \
+	fi; \
+	docker build --tag $(DEV_WORKTREE_IMAGE) .; \
+	if ! DEV_IMAGE=$(DEV_WORKTREE_IMAGE) $(DEPLOY_COMPOSE) up --detach --no-deps --force-recreate --wait --wait-timeout 90 dev; then \
+		echo "Working-tree build failed its health check; restoring the previous dev image." >&2; \
+		if [ -n "$$previous_image" ]; then \
+			DEV_IMAGE="$$previous_image" $(DEPLOY_COMPOSE) up --detach --no-deps --force-recreate --wait --wait-timeout 90 dev; \
+		fi; \
+		exit 1; \
+	fi
+	@echo "Development now runs the current working tree; its database was preserved."
 
 restart-dev:
 	@$(DEPLOY_COMPOSE) restart dev

@@ -86,6 +86,22 @@ A push to `main`, `beta`, or `prod` updates only its matching environment.
 This allows changes to move from development to beta to production without
 mixing their databases.
 
+When working directly on the deployment host, test the current working tree on
+the public development URL without committing or pushing it:
+
+```bash
+make rebuild-dev
+```
+
+This builds the checked-out files, including uncommitted changes, and recreates
+only the `dev` service at <https://tinkersplayground.com/dev/>. It preserves the
+development database and waits for the replacement container to become
+healthy. If that check fails, the previous development image is restored.
+The deployment lock prevents this command from overlapping a GitHub Actions
+deployment. A later successful push to `main` replaces the working-tree image
+with the image built by GitHub Actions. Run `make reset-dev` only when the
+development database should be permanently erased.
+
 The deployment stack in `deploy/compose.yaml` contains Caddy, development,
 beta, and production. Only Caddy publishes host ports 80 and 443; the three Go
 services remain on the private Compose network at port 8080. Caddy preserves
