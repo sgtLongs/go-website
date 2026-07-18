@@ -20,6 +20,7 @@ var (
 	ErrAlreadyActive      = errors.New("a game is already running")
 	ErrNotEnoughPlayers   = errors.New("at least three players are needed")
 	ErrInvalidSettings    = errors.New("role counts must match the player count and include both factions")
+	ErrInvalidQuestRules  = errors.New("quest sizes and failure thresholds must be valid for the player count")
 	ErrNotActive          = errors.New("no game is running")
 	ErrWrongPhase         = errors.New("that action is not allowed right now")
 	ErrNotCaptain         = errors.New("only the captain can choose the quest team")
@@ -44,14 +45,16 @@ const (
 	Assassin Role = "assassin"
 )
 
-// Settings controls how many players receive each role. Minions and
-// Assassins belong to the traitor faction; Innocents and Merlins belong to the
-// innocent faction.
+// Settings controls role counts and the team size and failure threshold for
+// each quest. Minions and Assassins belong to the traitor faction; Innocents
+// and Merlins belong to the innocent faction.
 type Settings struct {
-	Minions   int `json:"minions"`
-	Innocents int `json:"innocents"`
-	Merlins   int `json:"merlins"`
-	Assassins int `json:"assassins"`
+	Minions             int              `json:"minions"`
+	Innocents           int              `json:"innocents"`
+	Merlins             int              `json:"merlins"`
+	Assassins           int              `json:"assassins"`
+	QuestSizes          [TotalRounds]int `json:"questSizes"`
+	QuestFailThresholds [TotalRounds]int `json:"questFailThresholds"`
 }
 
 func (settings Settings) Total() int {
@@ -72,7 +75,7 @@ func (settings Settings) Validate(playerCount int) error {
 	if settings.Total() != playerCount {
 		return ErrInvalidSettings
 	}
-	return nil
+	return settings.ValidateQuests(playerCount)
 }
 
 func (settings Settings) ValidateComposition() error {
@@ -85,7 +88,45 @@ func (settings Settings) ValidateComposition() error {
 	if settings.Minions+settings.Assassins == 0 || settings.Innocents+settings.Merlins == 0 {
 		return ErrInvalidSettings
 	}
+	for index := range TotalRounds {
+		if settings.QuestSizes[index] < 0 || settings.QuestFailThresholds[index] < 0 {
+			return ErrInvalidQuestRules
+		}
+		if settings.QuestSizes[index] > 0 && settings.QuestFailThresholds[index] > settings.QuestSizes[index] {
+			return ErrInvalidQuestRules
+		}
+	}
 	return nil
+}
+
+// ValidateQuests checks the five configurable quest rules. Zero values are
+// accepted for backwards compatibility and use the built-in team size or the
+// default threshold of one failure.
+func (settings Settings) ValidateQuests(playerCount int) error {
+	for round := 1; round <= TotalRounds; round++ {
+		size, exists := settings.questSizeFor(playerCount, round)
+		if !exists || size < 1 || size > playerCount {
+			return ErrInvalidQuestRules
+		}
+		failures := settings.QuestFailThresholds[round-1]
+		if failures == 0 {
+			failures = 1
+		}
+		if failures < 1 || failures > size {
+			return ErrInvalidQuestRules
+		}
+	}
+	return nil
+}
+
+func (settings Settings) questSizeFor(playerCount, round int) (int, bool) {
+	if round < 1 || round > TotalRounds {
+		return 0, false
+	}
+	if size := settings.QuestSizes[round-1]; size > 0 {
+		return size, true
+	}
+	return QuestSizeFor(playerCount, round)
 }
 
 type Phase string
@@ -114,6 +155,7 @@ type QuestResult struct {
 	Succeeded    bool `json:"succeeded"`
 	SuccessCards int  `json:"successCards"`
 	FailCards    int  `json:"failCards"`
+	FailsNeeded  int  `json:"failsNeeded"`
 	Automatic    bool `json:"automatic,omitempty"`
 }
 
@@ -136,6 +178,8 @@ type Snapshot struct {
 	Quest                 []Player             `json:"quest,omitempty"`
 	QuestSize             int                  `json:"questSize"`
 	QuestSizes            []int                `json:"questSizes"`
+	QuestFailsNeeded      int                  `json:"questFailsNeeded"`
+	QuestFailThresholds   []int                `json:"questFailThresholds"`
 	ProposalVotesCast     int                  `json:"proposalVotesCast"`
 	ProposalVotesNeeded   int                  `json:"proposalVotesNeeded"`
 	RejectedProposals     int                  `json:"rejectedProposals"`
@@ -236,11 +280,6 @@ func (g *Engine) StartWithSettings(players []Player, settings Settings) (Started
 	}
 	if err := settings.Validate(len(players)); err != nil {
 		return Started{}, err
-	}
-	for round := 1; round <= TotalRounds; round++ {
-		if _, exists := QuestSizeFor(len(players), round); !exists {
-			return Started{}, ErrMissingQuestRule
-		}
 	}
 	players = append([]Player(nil), players...)
 
@@ -431,10 +470,11 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 		}
 	}
 	failCards := len(g.quest) - successCards
-	succeeded := failCards == 0
+	failsNeeded := g.currentQuestFailsNeeded()
+	succeeded := failCards < failsNeeded
 	result := QuestResult{
 		Round: g.round, Succeeded: succeeded,
-		SuccessCards: successCards, FailCards: failCards,
+		SuccessCards: successCards, FailCards: failCards, FailsNeeded: failsNeeded,
 	}
 	g.resolveQuest(result)
 	return true, nil
@@ -638,16 +678,20 @@ func normalizeLegacyRoles(state PersistedState) PersistedState {
 
 func (g *Engine) Snapshot() Snapshot {
 	questSizes := make([]int, TotalRounds)
+	questFailThresholds := make([]int, TotalRounds)
 	for round := 1; round <= TotalRounds; round++ {
-		questSizes[round-1], _ = QuestSizeFor(g.livingPlayerCount(), round)
+		questSizes[round-1] = g.questSizeForRound(round)
+		questFailThresholds[round-1] = g.questFailsNeededForRound(round)
 	}
 	state := Snapshot{
 		Active: g.active, Phase: g.phase, Round: g.round, TotalRounds: TotalRounds,
-		Players:           append([]Player(nil), g.players...),
-		Quest:             append([]Player(nil), g.quest...),
-		QuestSize:         g.currentQuestSize(),
-		QuestSizes:        questSizes,
-		ProposalVotesCast: len(g.proposalVotes), ProposalVotesNeeded: g.livingPlayerCount(),
+		Players:             append([]Player(nil), g.players...),
+		Quest:               append([]Player(nil), g.quest...),
+		QuestSize:           g.currentQuestSize(),
+		QuestSizes:          questSizes,
+		QuestFailsNeeded:    g.currentQuestFailsNeeded(),
+		QuestFailThresholds: questFailThresholds,
+		ProposalVotesCast:   len(g.proposalVotes), ProposalVotesNeeded: g.livingPlayerCount(),
 		RejectedProposals: g.rejectedTeams, ProposalRejectLimit: ProposalRejectionLimit,
 		QuestCardsPlayed: len(g.questCards), QuestCardsNeeded: len(g.quest),
 		SuccessfulQuests: g.successful, FailedQuests: g.failed,
@@ -670,8 +714,40 @@ func (g *Engine) Snapshot() Snapshot {
 }
 
 func (g *Engine) currentQuestSize() int {
-	size, _ := QuestSizeFor(g.livingPlayerCount(), g.round)
+	return g.questSizeForRound(g.round)
+}
+
+func (g *Engine) questSizeForRound(round int) int {
+	if round < 1 || round > TotalRounds {
+		return 0
+	}
+	livingPlayers := g.livingPlayerCount()
+	size, _ := g.settings.questSizeFor(livingPlayers, round)
+	if configured := g.settings.QuestSizes[round-1]; configured > 0 {
+		size = configured
+		if size > livingPlayers {
+			size = livingPlayers
+		}
+	}
 	return size
+}
+
+func (g *Engine) currentQuestFailsNeeded() int {
+	return g.questFailsNeededForRound(g.round)
+}
+
+func (g *Engine) questFailsNeededForRound(round int) int {
+	if round < 1 || round > TotalRounds {
+		return 0
+	}
+	failures := g.settings.QuestFailThresholds[round-1]
+	if failures == 0 {
+		failures = 1
+	}
+	if size := g.questSizeForRound(round); failures > size {
+		failures = size
+	}
+	return failures
 }
 
 // Cancel abandons an active game, for example when a player disconnects.
@@ -747,6 +823,9 @@ func (g *Engine) advanceCaptain() {
 }
 
 func (g *Engine) resolveQuest(result QuestResult) {
+	if result.FailsNeeded == 0 {
+		result.FailsNeeded = g.currentQuestFailsNeeded()
+	}
 	g.lastQuest = &result
 	g.questResults = append(g.questResults, result)
 	if result.Succeeded {

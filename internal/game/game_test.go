@@ -168,6 +168,65 @@ func TestSettingsValidation(t *testing.T) {
 	}
 }
 
+func TestQuestSettingsValidation(t *testing.T) {
+	valid := Settings{
+		Minions: 2, Innocents: 2,
+		QuestSizes:          [TotalRounds]int{3, 2, 4, 3, 2},
+		QuestFailThresholds: [TotalRounds]int{2, 1, 3, 2, 1},
+	}
+	if err := valid.Validate(4); err != nil {
+		t.Fatalf("valid quest settings error = %v", err)
+	}
+
+	invalid := []Settings{
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{5, 2, 2, 2, 2}},
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{2, 2, 2, 2, 2}, QuestFailThresholds: [TotalRounds]int{3, 1, 1, 1, 1}},
+		{Minions: 2, Innocents: 2, QuestSizes: [TotalRounds]int{-1, 2, 2, 2, 2}},
+	}
+	for _, settings := range invalid {
+		if err := settings.Validate(4); !errors.Is(err, ErrInvalidQuestRules) {
+			t.Errorf("Validate(%#v) error = %v, want ErrInvalidQuestRules", settings, err)
+		}
+	}
+}
+
+func TestCustomQuestSizeAndFailureThreshold(t *testing.T) {
+	settings := Settings{
+		Minions: 2, Innocents: 2,
+		QuestSizes:          [TotalRounds]int{3, 3, 3, 3, 3},
+		QuestFailThresholds: [TotalRounds]int{2, 2, 2, 2, 2},
+	}
+	playFirstQuest := func(t *testing.T, cards map[string]bool) Snapshot {
+		t.Helper()
+		engine := newWithChooser(func(int) (int, error) { return 0, nil })
+		started, err := engine.StartWithSettings(testPlayers(), settings)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if started.State.QuestSize != 3 || started.State.QuestFailsNeeded != 2 {
+			t.Fatalf("quest rule = %d players/%d failures, want 3/2", started.State.QuestSize, started.State.QuestFailsNeeded)
+		}
+		team := []string{"one", "two", "three"}
+		approveQuest(t, engine, started.State.Captain.ID, team)
+		for _, playerID := range team {
+			if _, err := engine.PlayQuestCard(playerID, cards[playerID]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return engine.Snapshot()
+	}
+
+	succeeded := playFirstQuest(t, map[string]bool{"one": false, "two": true, "three": true})
+	if succeeded.LastQuest == nil || !succeeded.LastQuest.Succeeded || succeeded.LastQuest.FailCards != 1 || succeeded.LastQuest.FailsNeeded != 2 {
+		t.Fatalf("one-failure quest result = %#v, want success with two failures needed", succeeded.LastQuest)
+	}
+
+	failed := playFirstQuest(t, map[string]bool{"one": false, "two": false, "three": true})
+	if failed.LastQuest == nil || failed.LastQuest.Succeeded || failed.LastQuest.FailCards != 2 || failed.LastQuest.FailsNeeded != 2 {
+		t.Fatalf("two-failure quest result = %#v, want failure", failed.LastQuest)
+	}
+}
+
 func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
 	engine := newWithChooser(func(int) (int, error) { return 0, nil })
 	settings := Settings{Minions: 2, Innocents: 2}

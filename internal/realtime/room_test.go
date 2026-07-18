@@ -396,7 +396,11 @@ func TestHostCanUpdatePendingGameSettings(t *testing.T) {
 		_ = receiveEvent(t, client)
 	}
 
-	settings := game.Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	settings := game.Settings{
+		Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{3, 3, 3, 3, 3},
+		QuestFailThresholds: [game.TotalRounds]int{2, 2, 2, 2, 2},
+	}
 	room.handleCommand(roomCommand{client: clients[0], kind: "update_game_settings", settings: settings})
 	if room.gameSettings != settings || len(room.pendingGameStartConfirmations()) != len(clients) {
 		t.Fatalf("pending settings = %#v; pending players = %d", room.gameSettings, len(room.pendingGameStartConfirmations()))
@@ -421,6 +425,9 @@ func TestHostCanUpdatePendingGameSettings(t *testing.T) {
 	}
 	if counts[game.Traitor] != 1 || counts[game.Innocent] != 1 || counts[game.Merlin] != 1 || counts[game.Assassin] != 1 {
 		t.Fatalf("assigned role counts = %#v", counts)
+	}
+	if exported := room.game.Export(); exported.Settings != settings || room.game.Snapshot().QuestFailsNeeded != 2 {
+		t.Fatalf("started quest settings = %#v, want %#v", exported.Settings, settings)
 	}
 }
 

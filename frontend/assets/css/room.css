@@ -59,15 +59,20 @@ body.confirming-role { overflow: hidden; }
 .assassination-dialog { max-height: 90vh; overflow-y: auto; }
 .assassination-dialog fieldset { margin-top: 1.25rem; }
 .assassination-dialog button:disabled { cursor: not-allowed; opacity: .5; }
-.game-settings-dialog { width: min(94vw, 38rem); max-height: 92vh; overflow-y: auto; border-color: #4e9a73; }
+.game-settings-dialog { width: min(94vw, 44rem); max-height: 92vh; overflow-y: auto; border-color: #4e9a73; }
 .game-settings-dialog .eyebrow { color: #9af0c5; }
+.game-settings-tabs { display: grid; grid-template-columns: repeat(2, 1fr); gap: .35rem; margin-top: 1.2rem; padding: .3rem; border: 1px solid #426356; border-radius: .75rem; background: #101513; }
+.game-settings-tab { min-height: 2.65rem; border: 1px solid transparent; background: transparent; color: #aebbb5; }
+.game-settings-tab.active { border-color: #75dfa9; background: #183829; color: #b8f5d5; }
+.game-settings-panel[hidden] { display: none; }
+.game-settings-panel-help { margin: 1rem 0 0; color: #bac3bf; font-size: .92rem; }
 .game-settings-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; margin-top: 1.25rem; }
 .game-settings-fields label { display: grid; grid-template-columns: 1fr auto; gap: .2rem .75rem; align-items: center; padding: .9rem; border: 1px solid #426356; border-radius: .75rem; background: #10151380; text-align: left; }
 .game-settings-fields label > span { font-weight: 800; }
 .game-settings-fields small { grid-column: 1; color: #9aa8a2; line-height: 1.3; }
 .role-count-controls { grid-column: 2; grid-row: 1 / span 2; display: grid; grid-template-columns: 5rem; align-items: center; }
-.role-count-controls input { width: 5rem; min-width: 0; padding: .5rem; border: 1px solid #5e766c; background: #101513; color: #f3f7f5; font-size: 1.2rem; font-weight: 800; text-align: center; }
-.role-count-step { display: none; }
+.settings-count-controls input { width: 5rem; min-width: 0; padding: .5rem; border: 1px solid #5e766c; background: #101513; color: #f3f7f5; font-size: 1.2rem; font-weight: 800; text-align: center; }
+.settings-count-step { display: none; }
 .game-settings-fields .innocent { border-color: #75dfa9; background: #183829; }
 .game-settings-fields .innocent > span { color: #9af0c5; }
 .game-settings-fields .merlin { border-color: #5da9ff; background: #092e5e; }
@@ -81,6 +86,16 @@ body.confirming-role { overflow: hidden; }
 .game-settings-total.invalid, .game-settings-error { color: #ffabab; }
 .game-settings-error { margin: .5rem 0 0; }
 .game-settings-lobby-warning { margin: .5rem 0 0; padding: .7rem; border: 1px solid #d6a34f; border-radius: .55rem; background: #4a3514; color: #ffd990 !important; font-weight: 800; }
+.quest-settings-heading, .quest-settings-row { display: grid; grid-template-columns: minmax(6rem, 1fr) 8.5rem 8.5rem; gap: .75rem; align-items: center; }
+.quest-settings-heading { margin: 1.2rem .9rem .4rem; color: #8f9d96; font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-align: center; text-transform: uppercase; }
+.quest-settings-heading span:first-child { text-align: left; }
+.quest-settings-fields { display: grid; gap: .55rem; }
+.quest-settings-row { padding: .65rem .9rem; border: 1px solid #426356; border-radius: .7rem; background: #10151380; }
+.quest-settings-row strong { color: #b8f5d5; }
+.quest-settings-row label { margin: 0; }
+.quest-settings-row label > span:first-child { display: none; }
+.quest-count-controls { display: grid; grid-template-columns: 5rem; justify-content: center; }
+.quest-count-controls input { width: 5rem; }
 .game-settings-dialog button:disabled { cursor: not-allowed; opacity: .5; }
 .assassination-status { margin: 1rem 0 0; padding: .75rem; border: 1px solid #a96161; border-radius: .55rem; background: #3b2020; color: #ffc1c1; line-height: 1.4; }
 body.sidebar-open { overflow: hidden; }
@@ -342,6 +357,7 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
 .quest-card-icon { font-size: 1.25rem; font-weight: 900; line-height: 1; }
 .quest-card-status { font-size: .68rem; }
 .quest-card-team-size { color: #f3f7f5; font-size: .68rem; font-weight: 800; white-space: nowrap; }
+.quest-card-fail-threshold { color: #d9b4b4; font-size: .62rem; font-weight: 700; white-space: nowrap; }
 .vote-failure-board {
     display: flex;
     align-items: center;
@@ -1002,9 +1018,16 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 
 @media (max-width: 480px) {
     .game-settings-fields { grid-template-columns: 1fr; }
-    .role-count-controls { grid-template-columns: 2.75rem 4rem 2.75rem; gap: .3rem; }
-    .role-count-controls input { width: 4rem; }
-    .role-count-step { display: grid; place-items: center; width: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid #789189; background: #101513cc; color: #f3f7f5; font-size: 1.8rem; line-height: 1; }
+    .settings-count-controls { grid-template-columns: 2.5rem 3.5rem 2.5rem; gap: .25rem; }
+    .settings-count-controls input { width: 3.5rem; }
+    .settings-count-step { display: grid; place-items: center; width: 2.5rem; min-height: 2.75rem; padding: 0; border: 1px solid #789189; background: #101513cc; color: #f3f7f5; font-size: 1.8rem; line-height: 1; }
+    .quest-settings-heading { display: none; }
+    .quest-settings-fields { margin-top: 1rem; }
+    .quest-settings-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; padding: .7rem; }
+    .quest-settings-row strong { grid-column: 1 / -1; }
+    .quest-settings-row label { display: grid; gap: .35rem; color: #9aa8a2; font-size: .75rem; font-weight: 800; text-align: center; text-transform: uppercase; }
+    .quest-settings-row label > span:first-child { display: block; }
+    .quest-count-controls { justify-content: center; }
     /* Keep the vote-result action visible on short phone screens. */
     body.gameplay-active .proposal-result-announcement.accepted,
     body.gameplay-active .proposal-result-announcement.rejected {

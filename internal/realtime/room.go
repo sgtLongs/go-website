@@ -359,6 +359,10 @@ func (r *Room) handleCommand(command roomCommand) {
 			r.queueGameError(command.client, err)
 			return
 		}
+		if err := command.settings.ValidateQuests(len(r.clients)); err != nil {
+			r.queueGameError(command.client, err)
+			return
+		}
 		if command.settings != r.gameSettings {
 			r.gameSettings = command.settings
 			if r.gameStarting {
@@ -411,6 +415,12 @@ func (r *Room) handleCommand(command roomCommand) {
 		if command.client.participant.Host && r.gameSettings.Total() != r.connectedGameStartPlayerCount() {
 			r.queueError(command.client, "The configured role count must match the connected player count before the host can ready up.")
 			return
+		}
+		if command.client.participant.Host {
+			if err := r.gameSettings.ValidateQuests(r.connectedGameStartPlayerCount()); err != nil {
+				r.queueGameError(command.client, err)
+				return
+			}
 		}
 		playerID := command.client.participant.ID
 		wasReady := r.gameStartConfirmations[playerID]
@@ -776,6 +786,9 @@ func (r *Room) restore(state persistedRoom) error {
 		if err := r.gameSettings.ValidateComposition(); err != nil {
 			return fmt.Errorf("restore pending game settings: %w", err)
 		}
+		if err := r.gameSettings.ValidateQuests(len(r.gameStartPlayers)); err != nil {
+			return fmt.Errorf("restore pending quest settings: %w", err)
+		}
 	}
 	return nil
 }
@@ -824,6 +837,8 @@ func (r *Room) queueGameError(client *Client, err error) {
 		message = "At least three players are needed."
 	case errors.Is(err, game.ErrInvalidSettings):
 		message = "Role settings must include both factions and have at most one Merlin and one Assassin."
+	case errors.Is(err, game.ErrInvalidQuestRules):
+		message = "Each quest needs a valid team size, and its failures needed must be between one and the team size."
 	case errors.Is(err, errOnlyHost):
 		message = "Only the host can start a game."
 	case errors.Is(err, game.ErrNotCaptain):

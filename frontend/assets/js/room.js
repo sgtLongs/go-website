@@ -44,6 +44,8 @@
     const gameStartingSettings = byID("game-starting-settings");
     const gameSettingsDialog = byID("game-settings-dialog");
     const gameSettingsForm = byID("game-settings-form");
+    const gameSettingsTabs = [...gameSettingsForm.querySelectorAll('[role="tab"]')];
+    const gameSettingsPanels = [...gameSettingsForm.querySelectorAll('[role="tabpanel"]')];
     const gameSettingsTotal = byID("game-settings-total");
     const gameSettingsLobbyWarning = byID("game-settings-lobby-warning");
     const gameSettingsError = byID("game-settings-error");
@@ -201,14 +203,31 @@
     gameSettingsDialog.addEventListener("click", (event) => {
         if (event.target === gameSettingsDialog) gameSettingsDialog.close();
     });
-    gameSettingsForm.addEventListener("input", renderGameSettingsValidation);
+    for (const tab of gameSettingsTabs) {
+        tab.addEventListener("click", () => selectGameSettingsTab(tab));
+        tab.addEventListener("keydown", (event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+            event.preventDefault();
+            const direction = event.key === "ArrowRight" ? 1 : -1;
+            const nextIndex = (gameSettingsTabs.indexOf(tab) + direction + gameSettingsTabs.length) % gameSettingsTabs.length;
+            selectGameSettingsTab(gameSettingsTabs[nextIndex]);
+            gameSettingsTabs[nextIndex].focus();
+        });
+    }
+    gameSettingsForm.addEventListener("input", (event) => {
+        if (event.target.name?.startsWith("quest-size-")) syncQuestInputLimits(true);
+        renderGameSettingsValidation();
+    });
     gameSettingsForm.addEventListener("click", (event) => {
-        const stepButton = event.target.closest(".role-count-step");
+        const stepButton = event.target.closest(".settings-count-step");
         if (!stepButton) return;
-        const input = stepButton.closest(".role-count-controls").querySelector("input");
+        const input = stepButton.closest(".settings-count-controls").querySelector("input");
         const direction = Number(stepButton.dataset.direction);
         const minimum = Number(input.min) || 0;
-        const maximum = Number(input.max) || gameStartPlayers.length;
+        const configuredMaximum = Number(input.max);
+        const maximum = Number.isFinite(configuredMaximum) && configuredMaximum > 0
+            ? configuredMaximum
+            : connectedGameStartPlayerCount();
         input.value = String(Math.max(minimum, Math.min(maximum, Number(input.value) + direction)));
         input.dispatchEvent(new Event("input", {bubbles: true}));
     });
@@ -217,7 +236,7 @@
     gameSettingsForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const settings = readGameSettingsForm();
-        if (!validGameSettings(settings)) {
+        if (!validGameSettings(settings, connectedGameStartPlayerCount())) {
             renderGameSettingsValidation();
             return;
         }
@@ -1020,8 +1039,10 @@
         questResultDetail.textContent = quest.automatic
             ? `Quest ${quest.round} automatically failed after five rejected teams.`
             : succeeded
-                ? `All ${quest.successCards} cards were successes.`
-                : `${quest.failCards} out of ${totalCards} cards failed.`;
+                ? quest.failCards === 0
+                    ? `All ${quest.successCards} cards were successes.`
+                    : `${quest.failCards} out of ${totalCards} cards failed, but ${quest.failsNeeded || 1} were needed to fail the quest.`
+                : `${quest.failCards} out of ${totalCards} cards failed (${quest.failsNeeded || 1} needed).`;
         let secondsRemaining = 10;
         updateQuestResultAction(secondsRemaining);
         questResultTimer = window.setInterval(() => {
@@ -1128,12 +1149,22 @@
 
     function openGameSettingsDialog() {
         if (!isHost) return;
-        const settings = gameSettings || defaultGameSettings(connectedGameStartPlayerCount());
+        const playerCount = connectedGameStartPlayerCount();
+        const settings = normalizeGameSettings(gameSettings || defaultGameSettings(playerCount), playerCount);
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             const input = gameSettingsForm.elements.namedItem(name);
             input.value = String(settings[name] ?? 0);
             input.max = String(name === "merlins" || name === "assassins" ? 1 : 99);
         }
+        for (let round = 1; round <= 5; round += 1) {
+            const sizeInput = gameSettingsForm.elements.namedItem(`quest-size-${round}`);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            sizeInput.value = String(settings.questSizes[round - 1]);
+            sizeInput.max = String(playerCount);
+            failuresInput.value = String(settings.questFailThresholds[round - 1]);
+        }
+        syncQuestInputLimits(false);
+        selectGameSettingsTab(gameSettingsTabs[0]);
         gameSettingsError.hidden = true;
         renderGameSettingsValidation();
         gameSettingsDialog.showModal();
@@ -1145,15 +1176,19 @@
     }
 
     function readGameSettingsForm() {
-        const settings = {};
+        const settings = {questSizes: [], questFailThresholds: []};
         for (const name of ["minions", "innocents", "merlins", "assassins"]) {
             settings[name] = Number(gameSettingsForm.elements.namedItem(name).value);
+        }
+        for (let round = 1; round <= 5; round += 1) {
+            settings.questSizes.push(Number(gameSettingsForm.elements.namedItem(`quest-size-${round}`).value));
+            settings.questFailThresholds.push(Number(gameSettingsForm.elements.namedItem(`quest-fails-${round}`).value));
         }
         return settings;
     }
 
-    function validGameSettings(settings) {
-        const counts = Object.values(settings);
+    function validRoleSettings(settings) {
+        const counts = [settings.minions, settings.innocents, settings.merlins, settings.assassins];
         return counts.every((count) => Number.isInteger(count) && count >= 0)
             && settings.merlins <= 1
             && settings.assassins <= 1
@@ -1161,26 +1196,42 @@
             && settings.innocents + settings.merlins > 0;
     }
 
+    function validQuestSettings(settings, playerCount) {
+        return settings.questSizes.every((size) => Number.isInteger(size) && size >= 1 && size <= playerCount)
+            && settings.questFailThresholds.every((failures, index) => (
+                Number.isInteger(failures) && failures >= 1 && failures <= settings.questSizes[index]
+            ));
+    }
+
+    function validGameSettings(settings, playerCount) {
+        return validRoleSettings(settings) && validQuestSettings(settings, playerCount);
+    }
+
     function renderGameSettingsValidation() {
         const settings = readGameSettingsForm();
-        const counts = Object.values(settings);
+        const counts = [settings.minions, settings.innocents, settings.merlins, settings.assassins];
         const total = counts.every(Number.isFinite) ? counts.reduce((sum, count) => sum + count, 0) : 0;
-        const valid = validGameSettings(settings);
+        const rolesValid = validRoleSettings(settings);
         const connectedPlayers = connectedGameStartPlayerCount();
+        const questsValid = validQuestSettings(settings, connectedPlayers);
+        const valid = rolesValid && questsValid;
         gameSettingsTotal.textContent = `${total} role${total === 1 ? "" : "s"} configured for ${connectedPlayers} connected player${connectedPlayers === 1 ? "" : "s"}`;
-        gameSettingsTotal.classList.toggle("valid", valid);
-        gameSettingsTotal.classList.toggle("invalid", !valid);
+        gameSettingsTotal.classList.toggle("valid", rolesValid);
+        gameSettingsTotal.classList.toggle("invalid", !rolesValid);
         const rolePlayerMismatch = total !== connectedPlayers;
         gameSettingsLobbyWarning.textContent = rolePlayerMismatch
             ? gameStartRoleWarning(total, connectedPlayers)
             : "";
         gameSettingsLobbyWarning.hidden = !rolePlayerMismatch;
         saveGameSettings.disabled = !valid;
-        updateRoleCountStepButtons();
-        if (!valid) {
+        updateSettingsCountStepButtons();
+        if (!rolesValid) {
             gameSettingsError.textContent = settings.merlins > 1 || settings.assassins > 1
                 ? "A game can have at most one Merlin and one Assassin."
                 : "Include at least one loyal player and one Minion of Mordred.";
+            gameSettingsError.hidden = false;
+        } else if (!questsValid) {
+            gameSettingsError.textContent = "Each quest needs 1 or more players, and failures needed cannot exceed its team size.";
             gameSettingsError.hidden = false;
         } else {
             gameSettingsError.hidden = true;
@@ -1188,7 +1239,7 @@
     }
 
     function updateMobileRoleCountInputs() {
-        for (const input of gameSettingsForm.querySelectorAll('.role-count-controls input')) {
+        for (const input of gameSettingsForm.querySelectorAll('.settings-count-controls input')) {
             input.readOnly = mobileRoleCountControls.matches;
             input.inputMode = mobileRoleCountControls.matches ? "none" : "numeric";
         }
@@ -1211,21 +1262,62 @@
             : `Game can’t start: only ${roles} roles for ${players} players.`;
     }
 
-    function updateRoleCountStepButtons() {
-        for (const controls of gameSettingsForm.querySelectorAll(".role-count-controls")) {
+    function updateSettingsCountStepButtons() {
+        for (const controls of gameSettingsForm.querySelectorAll(".settings-count-controls")) {
             const input = controls.querySelector("input");
             const value = Number(input.value);
             const minimum = Number(input.min) || 0;
-            const maximum = Number(input.max) || gameStartPlayers.length;
+            const maximum = Number(input.max) || connectedGameStartPlayerCount();
             controls.querySelector('[data-direction="-1"]').disabled = value <= minimum;
             controls.querySelector('[data-direction="1"]').disabled = value >= maximum;
         }
     }
 
+    function syncQuestInputLimits(clampFailures) {
+        for (let round = 1; round <= 5; round += 1) {
+            const size = Number(gameSettingsForm.elements.namedItem(`quest-size-${round}`).value);
+            const failuresInput = gameSettingsForm.elements.namedItem(`quest-fails-${round}`);
+            failuresInput.max = String(Math.max(1, size));
+            if (clampFailures && Number(failuresInput.value) > size) failuresInput.value = String(Math.max(1, size));
+        }
+    }
+
+    function selectGameSettingsTab(selectedTab) {
+        for (const tab of gameSettingsTabs) {
+            const selected = tab === selectedTab;
+            tab.classList.toggle("active", selected);
+            tab.setAttribute("aria-selected", String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+        }
+        for (const panel of gameSettingsPanels) panel.hidden = panel.id !== selectedTab.getAttribute("aria-controls");
+    }
+
     function defaultGameSettings(playerCount) {
-        return playerCount >= 2
+        const roles = playerCount >= 2
             ? {minions: 0, innocents: playerCount - 2, merlins: 1, assassins: 1}
             : {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
+        return {...roles, questSizes: defaultQuestSizes(playerCount), questFailThresholds: [1, 1, 1, 1, 1]};
+    }
+
+    function normalizeGameSettings(settings, playerCount) {
+        const defaults = defaultGameSettings(playerCount);
+        return {
+            minions: Number(settings.minions ?? defaults.minions),
+            innocents: Number(settings.innocents ?? defaults.innocents),
+            merlins: Number(settings.merlins ?? defaults.merlins),
+            assassins: Number(settings.assassins ?? defaults.assassins),
+            questSizes: defaults.questSizes.map((size, index) => Number(settings.questSizes?.[index]) || size),
+            questFailThresholds: defaults.questFailThresholds.map((failures, index) => Number(settings.questFailThresholds?.[index]) || failures),
+        };
+    }
+
+    function defaultQuestSizes(playerCount) {
+        if (playerCount <= 2) return [1, 1, 1, 1, 1];
+        if (playerCount <= 5) return [2, 3, 2, 3, 3];
+        if (playerCount === 6) return [2, 3, 4, 3, 4];
+        if (playerCount === 7) return [2, 3, 3, 4, 4];
+        if (playerCount <= 10) return [3, 4, 4, 5, 5];
+        return [4, 5, 5, 6, 6];
     }
 
     function showUnreadyGlow() {
@@ -1381,8 +1473,10 @@
             result.textContent = quest.automatic
                 ? `Round ${quest.round} automatically failed after five rejected teams.`
                 : quest.succeeded
-                ? `Round ${quest.round} succeeded: all ${quest.successCards} cards were successes.`
-                : `Round ${quest.round} failed: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed.`;
+                ? quest.failCards === 0
+                    ? `Round ${quest.round} succeeded: all ${quest.successCards} cards were successes.`
+                    : `Round ${quest.round} succeeded: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed, fewer than the ${quest.failsNeeded || 1} needed.`
+                : `Round ${quest.round} failed: ${quest.failCards} fail card${quest.failCards === 1 ? "" : "s"} revealed (${quest.failsNeeded || 1} needed).`;
             result.className = `round-result ${quest.succeeded ? "succeeded" : "failed"}`;
             result.hidden = false;
         } else if (gameState.lastProposal && !gameState.lastProposal.approved) {
@@ -1686,7 +1780,14 @@
             const requiredPlayers = gameState.questSizes?.[round - 1] || (round === gameState.round ? gameState.questSize : 0);
             teamSize.textContent = requiredPlayers ? `${requiredPlayers} player${requiredPlayers === 1 ? "" : "s"}` : "";
 
-            card.append(roundLabel, iconElement, statusElement, teamSize);
+            const failuresNeeded = gameState.questFailThresholds?.[round - 1]
+                || result?.failsNeeded
+                || (round === gameState.round ? gameState.questFailsNeeded : 1);
+            const failureThreshold = document.createElement("span");
+            failureThreshold.className = "quest-card-fail-threshold";
+            failureThreshold.textContent = `${failuresNeeded} fail${failuresNeeded === 1 ? "" : "s"} needed`;
+
+            card.append(roundLabel, iconElement, statusElement, teamSize, failureThreshold);
             list.append(card);
         }
     }
