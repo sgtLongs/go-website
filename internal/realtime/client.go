@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/sgtLongs/go-website/internal/game"
 )
 
 const (
@@ -23,9 +24,10 @@ type Client struct {
 }
 
 type clientCommand struct {
-	Type      string   `json:"type"`
-	PlayerIDs []string `json:"playerIds"`
-	Choice    bool     `json:"choice"`
+	Type      string        `json:"type"`
+	PlayerIDs []string      `json:"playerIds"`
+	Choice    bool          `json:"choice"`
+	Settings  game.Settings `json:"settings"`
 }
 
 func (c *Client) readPump() {
@@ -50,10 +52,10 @@ func (c *Client) readPump() {
 			continue
 		}
 		switch command.Type {
-		case "start_game", "end_game", "confirm_game_start", "confirm_role", "confirm_proposal_result", "propose_quest", "vote_proposal", "play_quest", "assassinate":
+		case "start_game", "update_game_settings", "cancel_game_start", "end_game", "confirm_game_start", "confirm_role", "confirm_proposal_result", "propose_quest", "vote_proposal", "play_quest", "assassinate":
 			c.room.commands <- roomCommand{
 				client: c, kind: command.Type,
-				playerIDs: command.PlayerIDs, choice: command.Choice,
+				playerIDs: command.PlayerIDs, choice: command.Choice, settings: command.Settings,
 			}
 		}
 	}

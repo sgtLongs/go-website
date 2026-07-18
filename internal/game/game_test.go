@@ -56,6 +56,7 @@ func TestRestoreRejectsTamperedRole(t *testing.T) {
 func TestRestoreUpgradesLegacyFactionRoles(t *testing.T) {
 	engine := startedEngine(t)
 	state := engine.Export()
+	state.Settings = Settings{}
 	for id, role := range state.Roles {
 		switch role {
 		case Assassin:
@@ -112,6 +113,73 @@ func TestStartAssignsMerlinAssassinAndRandomCaptain(t *testing.T) {
 	}
 	if traitors != 1 || merlins != 1 || assassins != 1 {
 		t.Fatalf("special role counts = traitors %d, Merlins %d, Assassins %d; want 1 each", traitors, merlins, assassins)
+	}
+}
+
+func TestStartWithSettingsAssignsRequestedRoleCounts(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	settings := Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	started, err := engine.StartWithSettings(testPlayers(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Role{
+		"one":   Assassin,
+		"two":   Traitor,
+		"three": Merlin,
+		"four":  Innocent,
+	}
+	if !reflect.DeepEqual(started.Roles, want) {
+		t.Fatalf("roles = %#v, want %#v", started.Roles, want)
+	}
+	if engine.Export().Settings != settings || len(engine.Export().Traitors) != 2 {
+		t.Fatalf("started state = %#v", started.State)
+	}
+
+	restored := New()
+	if err := restored.Restore(engine.Export()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Export().Roles, want) {
+		t.Fatalf("restored roles = %#v, want %#v", restored.Export().Roles, want)
+	}
+}
+
+func TestSettingsValidation(t *testing.T) {
+	valid := Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	if err := valid.Validate(4); err != nil {
+		t.Fatalf("valid settings error = %v", err)
+	}
+	if err := (Settings{Innocents: 1, Assassins: 1}).ValidateComposition(); err != nil {
+		t.Fatalf("mismatched pending settings error = %v", err)
+	}
+	invalid := []Settings{
+		{Minions: -1, Innocents: 3, Merlins: 1, Assassins: 1},
+		{Innocents: 1, Merlins: 2, Assassins: 1},
+		{Innocents: 1, Merlins: 1, Assassins: 2},
+		{Minions: 1, Innocents: 1},
+		{Innocents: 4},
+		{Minions: 4},
+	}
+	for _, settings := range invalid {
+		if err := settings.Validate(4); !errors.Is(err, ErrInvalidSettings) {
+			t.Errorf("Validate(%#v) error = %v, want ErrInvalidSettings", settings, err)
+		}
+	}
+}
+
+func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	settings := Settings{Minions: 2, Innocents: 2}
+	if _, err := engine.StartWithSettings(testPlayers(), settings); err != nil {
+		t.Fatal(err)
+	}
+	restored := New()
+	if err := restored.Restore(engine.Export()); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Export().Roles, engine.Export().Roles) {
+		t.Fatalf("restored roles = %#v, want %#v", restored.Export().Roles, engine.Export().Roles)
 	}
 }
 

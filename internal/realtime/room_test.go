@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sgtLongs/go-website/internal/game"
 	"github.com/sgtLongs/go-website/internal/persistence"
 )
 
@@ -239,6 +240,174 @@ func TestGameStartsOnlyAfterEveryPlayerReadies(t *testing.T) {
 		if event := receiveEvent(t, client); event.Type != "role_assigned" {
 			t.Fatalf("event = %q, want role_assigned", event.Type)
 		}
+	}
+}
+
+func TestHostCanUpdatePendingGameSettings(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "Guest One", false),
+		testClient(room, "Guest Two", false),
+		testClient(room, "Guest Three", false),
+	}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+
+	room.handleCommand(roomCommand{client: clients[0], kind: "start_game"})
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+	}
+	room.handleCommand(roomCommand{client: clients[0], kind: "confirm_game_start"})
+	for _, client := range clients {
+		_ = receiveEvent(t, client)
+	}
+
+	settings := game.Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	room.handleCommand(roomCommand{client: clients[0], kind: "update_game_settings", settings: settings})
+	if room.gameSettings != settings || len(room.pendingGameStartConfirmations()) != len(clients) {
+		t.Fatalf("pending settings = %#v; pending players = %d", room.gameSettings, len(room.pendingGameStartConfirmations()))
+	}
+	for _, client := range clients {
+		event := receiveEvent(t, client)
+		if event.Type != "game_settings_updated" {
+			t.Fatalf("event = %q, want game_settings_updated", event.Type)
+		}
+	}
+
+	for _, readyClient := range clients {
+		room.handleCommand(roomCommand{client: readyClient, kind: "confirm_game_start"})
+		for _, recipient := range clients {
+			_ = receiveEvent(t, recipient)
+		}
+	}
+	room.handleCommand(roomCommand{kind: "launch_game", playerIDs: []string{"2"}})
+	counts := map[game.Role]int{}
+	for _, role := range room.game.Export().Roles {
+		counts[role]++
+	}
+	if counts[game.Traitor] != 1 || counts[game.Innocent] != 1 || counts[game.Merlin] != 1 || counts[game.Assassin] != 1 {
+		t.Fatalf("assigned role counts = %#v", counts)
+	}
+}
+
+func TestGuestCannotUpdatePendingGameSettings(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	third := testClient(room, "Third", false)
+	for _, client := range []*Client{host, guest, third} {
+		room.clients[client] = struct{}{}
+	}
+	if err := room.prepareGame(host); err != nil {
+		t.Fatal(err)
+	}
+	want := room.gameSettings
+	room.handleCommand(roomCommand{
+		client: guest, kind: "update_game_settings",
+		settings: game.Settings{Minions: 1, Innocents: 2},
+	})
+	if event := receiveEvent(t, guest); event.Type != "error" {
+		t.Fatalf("event = %q, want error", event.Type)
+	}
+	if room.gameSettings != want {
+		t.Fatalf("guest changed settings to %#v, want %#v", room.gameSettings, want)
+	}
+}
+
+func TestHostCanExitGameStartingToLobby(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	third := testClient(room, "Third", false)
+	clients := []*Client{host, guest, third}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	if err := room.prepareGame(host); err != nil {
+		t.Fatal(err)
+	}
+	settings := room.gameSettings
+
+	room.handleCommand(roomCommand{client: host, kind: "cancel_game_start"})
+
+	if room.gameStarting || room.gameStartPlayers != nil || len(room.gameStartConfirmations) != 0 || room.gameSettings != settings {
+		t.Fatalf("game-start state was not cleared: starting=%v players=%#v confirmations=%#v settings=%#v", room.gameStarting, room.gameStartPlayers, room.gameStartConfirmations, room.gameSettings)
+	}
+	for _, client := range clients {
+		if event := receiveEvent(t, client); event.Type != "game_start_cancelled" {
+			t.Fatalf("event = %q, want game_start_cancelled", event.Type)
+		}
+	}
+}
+
+func TestHostCanSaveLobbySettingsBeforeStartingGame(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	third := testClient(room, "Third", false)
+	clients := []*Client{host, guest, third}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	settings := game.Settings{Minions: 1, Innocents: 3}
+
+	room.handleCommand(roomCommand{client: host, kind: "update_game_settings", settings: settings})
+	for _, client := range clients {
+		if event := receiveEvent(t, client); event.Type != "game_settings_updated" {
+			t.Fatalf("event = %q, want game_settings_updated", event.Type)
+		}
+	}
+	if room.gameSettings != settings || room.gameStarting {
+		t.Fatalf("lobby settings = %#v, game starting = %v; want %#v, false", room.gameSettings, room.gameStarting, settings)
+	}
+
+	if err := room.prepareGame(host); err != nil {
+		t.Fatal(err)
+	}
+	if room.gameSettings != settings {
+		t.Fatalf("starting settings = %#v, want lobby settings %#v", room.gameSettings, settings)
+	}
+}
+
+func TestHostCanSaveMismatchedRoleCountButCannotReady(t *testing.T) {
+	tests := map[string]game.Settings{
+		"more roles":  {Minions: 1, Innocents: 2, Merlins: 1},
+		"fewer roles": {Innocents: 1, Assassins: 1},
+	}
+	for name, settings := range tests {
+		t.Run(name, func(t *testing.T) {
+			room := newRoom("game-room", nil)
+			host := testClient(room, "Host", true)
+			guest := testClient(room, "Guest", false)
+			third := testClient(room, "Third", false)
+			clients := []*Client{host, guest, third}
+			for _, client := range clients {
+				room.clients[client] = struct{}{}
+			}
+			if err := room.prepareGame(host); err != nil {
+				t.Fatal(err)
+			}
+
+			room.handleCommand(roomCommand{client: host, kind: "update_game_settings", settings: settings})
+			for _, client := range clients {
+				if event := receiveEvent(t, client); event.Type != "game_settings_updated" {
+					t.Fatalf("settings event = %q, want game_settings_updated", event.Type)
+				}
+			}
+			if room.gameSettings != settings {
+				t.Fatalf("saved settings = %#v, want %#v", room.gameSettings, settings)
+			}
+
+			room.handleCommand(roomCommand{client: host, kind: "confirm_game_start"})
+			if event := receiveEvent(t, host); event.Type != "error" {
+				t.Fatalf("ready event = %q, want error", event.Type)
+			}
+			if room.gameStartConfirmations[host.participant.ID] {
+				t.Fatal("host was readied with a mismatched role count")
+			}
+		})
 	}
 }
 

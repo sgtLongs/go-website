@@ -25,6 +25,7 @@ type roomCommand struct {
 	kind      string
 	playerIDs []string
 	choice    bool
+	settings  game.Settings
 }
 
 type persistedRoom struct {
@@ -37,6 +38,7 @@ type persistedRoom struct {
 	GameStarting           bool                `json:"gameStarting"`
 	GameStartPlayers       []game.Player       `json:"gameStartPlayers,omitempty"`
 	GameStartConfirmations map[string]bool     `json:"gameStartConfirmations,omitempty"`
+	GameSettings           game.Settings       `json:"gameSettings,omitempty"`
 	UpdatedAt              time.Time           `json:"updatedAt"`
 }
 
@@ -55,6 +57,7 @@ type Room struct {
 	gameStarting           bool
 	gameStartPlayers       []game.Player
 	gameStartConfirmations map[string]bool
+	gameSettings           game.Settings
 	count                  atomic.Int64
 	gameStartCountdown     uint64
 	onEmpty                func(*Room)
@@ -140,12 +143,23 @@ func (r *Room) run() {
 			}
 			r.clients[client] = struct{}{}
 			r.connections[client.participant.ID] = client
+			rosterChanged := false
+			if r.gameStarting && !r.gameStartHasPlayer(client.participant.ID) {
+				r.gameStartPlayers = append(r.gameStartPlayers, game.Player{ID: client.participant.ID, Name: client.participant.Name})
+				sort.Slice(r.gameStartPlayers, func(i, j int) bool { return r.gameStartPlayers[i].ID < r.gameStartPlayers[j].ID })
+				r.gameStartConfirmations[client.participant.ID] = false
+				r.gameStartCountdown++
+				rosterChanged = true
+			}
 			if err := r.persist(); err != nil {
 				log.Printf("persist room %s on connection: %v", r.id, err)
 				r.queueError(client, "The room could not be saved. Please try reconnecting.")
 			}
 			r.sendSnapshot(client)
 			r.broadcastEvent("user_joined", client.participant)
+			if rosterChanged {
+				r.broadcastGameStartRoster()
+			}
 
 		case client := <-r.unregister:
 			if !r.disconnect(client, true) {
@@ -182,18 +196,18 @@ func (r *Room) disconnect(client *Client, announce bool) bool {
 		r.broadcastEvent("user_left", client.participant)
 	}
 	if r.gameStarting && r.gameStartHasPlayer(client.participant.ID) {
-		wasReady := r.gameStartConfirmations[client.participant.ID]
-		r.gameStartConfirmations[client.participant.ID] = false
+		for index, player := range r.gameStartPlayers {
+			if player.ID == client.participant.ID {
+				r.gameStartPlayers = append(r.gameStartPlayers[:index], r.gameStartPlayers[index+1:]...)
+				break
+			}
+		}
+		delete(r.gameStartConfirmations, client.participant.ID)
 		r.gameStartCountdown++
 		if err := r.persist(); err != nil {
 			log.Printf("persist room %s after disconnect: %v", r.id, err)
 		}
-		if wasReady {
-			player := game.Player{ID: client.participant.ID, Name: client.participant.Name}
-			r.broadcastGameStartConfirmations(&player, false)
-		} else {
-			r.broadcastGameStartConfirmations(nil, false)
-		}
+		r.broadcastGameStartRoster()
 	}
 	return true
 }
@@ -210,6 +224,11 @@ func (r *Room) sendSnapshot(client *Client) {
 		PlayerID:     client.participant.ID,
 	}
 	state := r.game.Snapshot()
+	settings := r.gameSettings
+	if settings == (game.Settings{}) {
+		settings = game.DefaultSettings(len(participants))
+	}
+	snapshot.GameSettings = &settings
 	snapshot.GameStarting = r.gameStarting
 	if r.gameStarting {
 		snapshot.PendingGameStartConfirmations = r.pendingGameStartConfirmations()
@@ -248,11 +267,48 @@ func (r *Room) handleCommand(command roomCommand) {
 		err = r.prepareGame(command.client)
 		if err == nil && r.saveOrRestore(before, command.client) {
 			r.broadcastEvent("game_starting", map[string]any{
-				"players": r.gameStartPlayers, "pendingPlayers": r.pendingGameStartConfirmations(),
+				"players": r.gameStartPlayers, "pendingPlayers": r.pendingGameStartConfirmations(), "settings": r.gameSettings,
 			})
 		}
 		if err != nil {
 			r.queueGameError(command.client, err)
+		}
+		return
+	case "update_game_settings":
+		if !command.client.participant.Host {
+			r.queueError(command.client, "Only the host can change game settings.")
+			return
+		}
+		if err := command.settings.ValidateComposition(); err != nil {
+			r.queueGameError(command.client, err)
+			return
+		}
+		if command.settings != r.gameSettings {
+			r.gameSettings = command.settings
+			if r.gameStarting {
+				r.gameStartConfirmations = make(map[string]bool, len(r.gameStartPlayers))
+				r.gameStartCountdown++
+			}
+			if !r.saveOrRestore(before, command.client) {
+				return
+			}
+		}
+		r.broadcastEvent("game_settings_updated", map[string]any{"settings": r.gameSettings, "pendingPlayers": r.pendingGameStartConfirmations()})
+		return
+	case "cancel_game_start":
+		if !command.client.participant.Host {
+			r.queueError(command.client, "Only the host can return the room to the lobby.")
+			return
+		}
+		if !r.gameStarting {
+			return
+		}
+		r.gameStarting = false
+		r.gameStartPlayers = nil
+		r.gameStartConfirmations = make(map[string]bool)
+		r.gameStartCountdown++
+		if r.saveOrRestore(before, command.client) {
+			r.broadcastEvent("game_start_cancelled", map[string]any{"message": "The host returned the room to the lobby.", "settings": r.gameSettings})
 		}
 		return
 	case "end_game":
@@ -264,6 +320,7 @@ func (r *Room) handleCommand(command roomCommand) {
 		r.gameStarting = false
 		r.gameStartPlayers = nil
 		r.gameStartConfirmations = make(map[string]bool)
+		r.gameSettings = game.Settings{}
 		r.roleConfirmations = make(map[string]bool)
 		r.proposalResultPending = false
 		r.proposalConfirmations = make(map[string]bool)
@@ -273,6 +330,10 @@ func (r *Room) handleCommand(command roomCommand) {
 		return
 	case "confirm_game_start":
 		if !r.gameStarting || !r.gameStartHasPlayer(command.client.participant.ID) {
+			return
+		}
+		if command.client.participant.Host && r.gameSettings.Total() != r.connectedGameStartPlayerCount() {
+			r.queueError(command.client, "The configured role count must match the connected player count before the host can ready up.")
 			return
 		}
 		playerID := command.client.participant.ID
@@ -399,6 +460,9 @@ func (r *Room) prepareGame(client *Client) error {
 	r.gameStarting = true
 	r.gameStartPlayers = players
 	r.gameStartConfirmations = make(map[string]bool, len(players))
+	if r.gameSettings == (game.Settings{}) {
+		r.gameSettings = game.DefaultSettings(len(players))
+	}
 	return nil
 }
 
@@ -407,7 +471,9 @@ func (r *Room) startGame(client *Client) error {
 		r.queueError(client, "Only the host can start a game.")
 		return nil
 	}
-	return r.launchGame(r.connectedPlayers())
+	players := r.connectedPlayers()
+	r.gameSettings = game.DefaultSettings(len(players))
+	return r.launchGame(players)
 }
 
 func (r *Room) connectedPlayers() []game.Player {
@@ -421,7 +487,11 @@ func (r *Room) connectedPlayers() []game.Player {
 
 func (r *Room) launchGame(players []game.Player) error {
 	before := r.state()
-	started, err := r.game.Start(players)
+	settings := r.gameSettings
+	if settings == (game.Settings{}) {
+		settings = game.DefaultSettings(len(players))
+	}
+	started, err := r.game.StartWithSettings(players, settings)
 	if err != nil {
 		return err
 	}
@@ -431,6 +501,7 @@ func (r *Room) launchGame(players []game.Player) error {
 	r.gameStarting = false
 	r.gameStartPlayers = nil
 	r.gameStartConfirmations = make(map[string]bool)
+	r.gameSettings = game.Settings{}
 	if !r.saveOrRestore(before, nil) {
 		return errors.New("persist game start")
 	}
@@ -460,6 +531,16 @@ func (r *Room) gameStartHasPlayer(id string) bool {
 	return false
 }
 
+func (r *Room) connectedGameStartPlayerCount() int {
+	connected := 0
+	for client := range r.clients {
+		if r.gameStartHasPlayer(client.participant.ID) {
+			connected++
+		}
+	}
+	return connected
+}
+
 func (r *Room) pendingGameStartConfirmations() []game.Player {
 	pending := make([]game.Player, 0, len(r.gameStartPlayers))
 	for _, player := range r.gameStartPlayers {
@@ -476,6 +557,12 @@ func (r *Room) broadcastGameStartConfirmations(unreadied *game.Player, countdown
 		data["unreadiedPlayer"] = unreadied
 	}
 	r.broadcastEvent("game_start_confirmations_updated", data)
+}
+
+func (r *Room) broadcastGameStartRoster() {
+	r.broadcastEvent("game_start_roster_updated", map[string]any{
+		"players": r.gameStartPlayers, "pendingPlayers": r.pendingGameStartConfirmations(), "settings": r.gameSettings,
+	})
 }
 
 func (r *Room) pendingRoleConfirmations() []game.Player {
@@ -520,7 +607,7 @@ func (r *Room) state() persistedRoom {
 		ProposalConfirmations: copyConfirmations(r.proposalConfirmations),
 		ProposalResultPending: r.proposalResultPending,
 		GameStarting:          r.gameStarting, GameStartPlayers: append([]game.Player(nil), r.gameStartPlayers...),
-		GameStartConfirmations: copyConfirmations(r.gameStartConfirmations), UpdatedAt: time.Now().UTC(),
+		GameStartConfirmations: copyConfirmations(r.gameStartConfirmations), GameSettings: r.gameSettings, UpdatedAt: time.Now().UTC(),
 	}
 }
 
@@ -537,6 +624,15 @@ func (r *Room) restore(state persistedRoom) error {
 	r.gameStarting = state.GameStarting
 	r.gameStartPlayers = append([]game.Player(nil), state.GameStartPlayers...)
 	r.gameStartConfirmations = copyConfirmations(state.GameStartConfirmations)
+	r.gameSettings = state.GameSettings
+	if r.gameStarting && r.gameSettings == (game.Settings{}) {
+		r.gameSettings = game.DefaultSettings(len(r.gameStartPlayers))
+	}
+	if r.gameStarting {
+		if err := r.gameSettings.ValidateComposition(); err != nil {
+			return fmt.Errorf("restore pending game settings: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -582,6 +678,8 @@ func (r *Room) queueGameError(client *Client, err error) {
 		message = "A game is already running."
 	case errors.Is(err, game.ErrNotEnoughPlayers):
 		message = "At least three players are needed."
+	case errors.Is(err, game.ErrInvalidSettings):
+		message = "Role settings must include both factions and have at most one Merlin and one Assassin."
 	case errors.Is(err, errOnlyHost):
 		message = "Only the host can start a game."
 	case errors.Is(err, game.ErrNotCaptain):
