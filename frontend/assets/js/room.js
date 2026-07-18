@@ -37,6 +37,8 @@
     const roleConfirmation = byID("role-confirmation");
     const roleConfirmationTitle = byID("role-confirmation-title");
     const roleConfirmationHelp = byID("role-confirmation-help");
+    const fellowMinions = byID("fellow-minions");
+    const fellowMinionList = byID("fellow-minion-list");
     const roleWaitingView = byID("role-waiting-view");
     const gameStartingView = byID("game-starting");
     const gameStartingReady = byID("game-starting-ready");
@@ -1495,7 +1497,35 @@
         roleConfirmation.classList.toggle("traitor", role === "traitor");
         roleConfirmation.classList.toggle("merlin", role === "merlin");
         roleConfirmation.classList.toggle("assassin", role === "assassin");
+        renderFellowMinions();
         if (wasHidden) roleConfirmation.focus();
+    }
+
+    function renderFellowMinions() {
+        const isMinion = role === "traitor" || role === "assassin";
+        fellowMinions.hidden = !isMinion;
+        fellowMinionList.replaceChildren();
+        if (!isMinion) return;
+
+        const teammates = (gameState?.players || []).filter((player) =>
+            player.id !== playerID && (knownRoles[player.id] === "traitor" || knownRoles[player.id] === "assassin")
+        );
+        for (const player of teammates) {
+            const item = document.createElement("li");
+            const name = document.createElement("strong");
+            name.textContent = player.name;
+            const marker = document.createElement("span");
+            marker.className = `role-badge ${knownRoles[player.id]}`;
+            marker.textContent = formatRole(knownRoles[player.id]);
+            item.append(name, marker);
+            fellowMinionList.append(item);
+        }
+        if (teammates.length === 0) {
+            const item = document.createElement("li");
+            item.className = "no-fellow-minions";
+            item.textContent = "You have no fellow Minions this game.";
+            fellowMinionList.append(item);
+        }
     }
 
     function confirmRole() {

@@ -552,7 +552,8 @@ func (g *Engine) RoleFor(playerID string) (Role, bool) {
 }
 
 // KnownRolesFor returns only the role markers this player is allowed to see.
-// Merlin sees every traitor by faction but not their special role.
+// Merlin sees every traitor by faction but not their special role. Minions and
+// the Assassin see the exact roles of everyone in their faction.
 func (g *Engine) KnownRolesFor(playerID string) map[string]Role {
 	known := make(map[string]Role)
 	role, assigned := g.RoleFor(playerID)
@@ -566,8 +567,12 @@ func (g *Engine) KnownRolesFor(playerID string) map[string]Role {
 				known[id] = Traitor
 			}
 		}
-	} else if role == Assassin {
-		known[playerID] = Assassin
+	} else if isTraitor(role) {
+		for id, candidateRole := range g.roles {
+			if isTraitor(candidateRole) {
+				known[id] = candidateRole
+			}
+		}
 	}
 	return known
 }

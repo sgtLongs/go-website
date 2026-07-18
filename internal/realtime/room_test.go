@@ -394,6 +394,54 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	}
 }
 
+func TestRoleAssignmentsRevealBadTeamToEachOther(t *testing.T) {
+	room := newRoom("bad-team-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "Guest One", false),
+		testClient(room, "Guest Two", false),
+		testClient(room, "Guest Three", false),
+	}
+	for _, client := range clients {
+		room.clients[client] = struct{}{}
+	}
+	room.gameSettings = game.Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	if err := room.launchGame(room.connectedPlayers()); err != nil {
+		t.Fatal(err)
+	}
+
+	badTeam := make(map[string]string)
+	knownByPlayer := make(map[string]map[string]any)
+	for _, client := range clients {
+		if event := receiveEvent(t, client); event.Type != "game_started" {
+			t.Fatalf("first event = %q, want game_started", event.Type)
+		}
+		event := receiveEvent(t, client)
+		if event.Type != "role_assigned" {
+			t.Fatalf("second event = %q, want role_assigned", event.Type)
+		}
+		data := event.Data.(map[string]any)
+		assignedRole := data["role"].(string)
+		if assignedRole == "traitor" || assignedRole == "assassin" {
+			badTeam[client.participant.ID] = assignedRole
+			knownByPlayer[client.participant.ID] = data["knownRoles"].(map[string]any)
+		}
+	}
+	if len(badTeam) != 2 {
+		t.Fatalf("bad team = %#v, want one Minion and one Assassin", badTeam)
+	}
+	for playerID, known := range knownByPlayer {
+		if len(known) != len(badTeam) {
+			t.Fatalf("known roles for %q = %#v, want %#v", playerID, known, badTeam)
+		}
+		for teammateID, teammateRole := range badTeam {
+			if known[teammateID] != teammateRole {
+				t.Fatalf("known roles for %q = %#v, want %#v", playerID, known, badTeam)
+			}
+		}
+	}
+}
+
 func TestOnlyHostCanStartGame(t *testing.T) {
 	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)

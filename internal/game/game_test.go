@@ -135,6 +135,13 @@ func TestStartWithSettingsAssignsRequestedRoleCounts(t *testing.T) {
 	if engine.Export().Settings != settings || len(engine.Export().Traitors) != 2 {
 		t.Fatalf("started state = %#v", started.State)
 	}
+	wantBadTeamKnowledge := map[string]Role{"one": Assassin, "two": Traitor}
+	if got := engine.KnownRolesFor("one"); !reflect.DeepEqual(got, wantBadTeamKnowledge) {
+		t.Fatalf("Assassin knowledge = %#v, want %#v", got, wantBadTeamKnowledge)
+	}
+	if got := engine.KnownRolesFor("two"); !reflect.DeepEqual(got, wantBadTeamKnowledge) {
+		t.Fatalf("Minion knowledge = %#v, want %#v", got, wantBadTeamKnowledge)
+	}
 
 	restored := New()
 	if err := restored.Restore(engine.Export()); err != nil {
