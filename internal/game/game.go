@@ -24,6 +24,7 @@ var (
 	ErrWrongPhase         = errors.New("that action is not allowed right now")
 	ErrNotCaptain         = errors.New("only the captain can choose the quest team")
 	ErrInvalidQuest       = errors.New("choose the required number of different players")
+	ErrDeadPlayer         = errors.New("dead players cannot take part in the game")
 	ErrMissingQuestRule   = errors.New("no quest rule is configured for these players")
 	ErrNotProposalVoter   = errors.New("only players in this game may vote on the proposal")
 	ErrAlreadyVoted       = errors.New("you have already voted")
@@ -99,6 +100,7 @@ const (
 type Player struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+	Dead bool   `json:"dead,omitempty"`
 }
 
 type ProposalResult struct {
@@ -240,10 +242,13 @@ func (g *Engine) StartWithSettings(players []Player, settings Settings) (Started
 			return Started{}, ErrMissingQuestRule
 		}
 	}
+	players = append([]Player(nil), players...)
 
 	roles := make(map[string]Role, len(players))
 	playerByID := make(map[string]Player, len(players))
-	for _, player := range players {
+	for index, player := range players {
+		player.Dead = false
+		players[index] = player
 		roles[player.ID] = Innocent
 		playerByID[player.ID] = player
 	}
@@ -314,6 +319,9 @@ func (g *Engine) ProposeQuest(captainID string, playerIDs []string) error {
 	if g.players[g.captainIndex].ID != captainID {
 		return ErrNotCaptain
 	}
+	if g.isDead(captainID) {
+		return ErrDeadPlayer
+	}
 	questSize := g.currentQuestSize()
 	if len(playerIDs) != questSize {
 		return ErrInvalidQuest
@@ -323,7 +331,7 @@ func (g *Engine) ProposeQuest(captainID string, playerIDs []string) error {
 	quest := make([]Player, 0, questSize)
 	for _, id := range playerIDs {
 		player, exists := g.playerByID[id]
-		if _, duplicate := seen[id]; !exists || duplicate {
+		if _, duplicate := seen[id]; !exists || duplicate || player.Dead {
 			return ErrInvalidQuest
 		}
 		seen[id] = struct{}{}
@@ -331,7 +339,7 @@ func (g *Engine) ProposeQuest(captainID string, playerIDs []string) error {
 	}
 
 	g.quest = quest
-	g.proposalVotes = make(map[string]bool, len(g.players))
+	g.proposalVotes = make(map[string]bool, g.livingPlayerCount())
 	g.phase = VotingOnTeam
 	g.lastProposal = nil
 	g.lastQuest = nil
@@ -349,12 +357,15 @@ func (g *Engine) VoteOnProposal(playerID string, approve bool) (bool, error) {
 	if _, exists := g.playerByID[playerID]; !exists {
 		return false, ErrNotProposalVoter
 	}
+	if g.isDead(playerID) {
+		return false, ErrDeadPlayer
+	}
 	if _, voted := g.proposalVotes[playerID]; voted {
 		return false, ErrAlreadyVoted
 	}
 
 	g.proposalVotes[playerID] = approve
-	if len(g.proposalVotes) < len(g.players) {
+	if len(g.proposalVotes) < g.livingPlayerCount() {
 		return false, nil
 	}
 
@@ -395,6 +406,9 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 	if g.phase != PlayingQuest {
 		return false, ErrWrongPhase
 	}
+	if g.isDead(playerID) {
+		return false, ErrDeadPlayer
+	}
 	if !g.onQuest(playerID) {
 		return false, ErrNotOnQuest
 	}
@@ -428,7 +442,7 @@ func (g *Engine) PlayQuestCard(playerID string, succeed bool) (bool, error) {
 
 // Assassinate gives the Assassin one attempt during an active game. A correct
 // guess ends the game in a traitor victory; an incorrect guess reveals the
-// Assassin publicly and leaves the current game phase unchanged.
+// Assassin publicly, kills the target, and returns the round to team selection.
 func (g *Engine) Assassinate(assassinID, targetID string) (bool, error) {
 	if !g.active {
 		return false, ErrNotActive
@@ -439,19 +453,29 @@ func (g *Engine) Assassinate(assassinID, targetID string) (bool, error) {
 	if g.assassination != nil {
 		return false, ErrAssassinationUsed
 	}
-	target, exists := g.playerByID[targetID]
+	_, exists := g.playerByID[targetID]
 	if !exists || targetID == assassinID {
 		return false, ErrInvalidTarget
 	}
 
 	correct := g.roles[targetID] == Merlin
+	g.markDead(targetID)
 	g.assassination = &AssassinationResult{
 		Assassin: g.playerByID[assassinID],
-		Target:   target,
+		Target:   g.playerByID[targetID],
 		Correct:  correct,
 	}
 	if correct {
 		g.finish(Traitor)
+	} else {
+		g.phase = ChoosingTeam
+		g.quest = nil
+		g.proposalVotes = nil
+		g.questCards = nil
+		g.lastProposal = nil
+		if g.players[g.captainIndex].Dead {
+			g.advanceCaptain()
+		}
 	}
 	return correct, nil
 }
@@ -461,6 +485,10 @@ func (g *Engine) Active() bool { return g.active }
 func (g *Engine) HasPlayer(playerID string) bool {
 	_, exists := g.playerByID[playerID]
 	return exists
+}
+
+func (g *Engine) IsDead(playerID string) bool {
+	return g.isDead(playerID)
 }
 
 func (g *Engine) RoleFor(playerID string) (Role, bool) {
@@ -544,9 +572,8 @@ func (g *Engine) Restore(state PersistedState) error {
 	return nil
 }
 
-// normalizeLegacyRoles upgrades rooms saved before Merlin and Assassin were
-// introduced. It preserves factions and deterministically promotes the first
-// innocent so an in-progress room can still be restored safely.
+// normalizeLegacyRoles upgrades rooms saved before special roles or dead-player
+// state were introduced so an in-progress room can still be restored safely.
 func normalizeLegacyRoles(state PersistedState) PersistedState {
 	legacySettings := len(state.Players) > 0 && state.Settings == (Settings{})
 	if legacySettings {
@@ -557,20 +584,53 @@ func normalizeLegacyRoles(state PersistedState) PersistedState {
 		hasMerlin = hasMerlin || role == Merlin
 		hasAssassin = hasAssassin || role == Assassin
 	}
-	if len(state.Players) == 0 || hasMerlin || hasAssassin || !legacySettings {
-		return state
-	}
-
-	state.Roles = copyRoles(state.Roles)
-	for id, role := range state.Roles {
-		if role == Traitor {
-			state.Roles[id] = Assassin
+	if len(state.Players) > 0 && !hasMerlin && !hasAssassin && legacySettings {
+		state.Roles = copyRoles(state.Roles)
+		for id, role := range state.Roles {
+			if role == Traitor {
+				state.Roles[id] = Assassin
+			}
+		}
+		for _, player := range state.Players {
+			if state.Roles[player.ID] == Innocent {
+				state.Roles[player.ID] = Merlin
+				break
+			}
 		}
 	}
-	for _, player := range state.Players {
-		if state.Roles[player.ID] == Innocent {
-			state.Roles[player.ID] = Merlin
+
+	if state.Assassination == nil {
+		return state
+	}
+	targetID := state.Assassination.Target.ID
+	state.Players = append([]Player(nil), state.Players...)
+	for index := range state.Players {
+		if state.Players[index].ID == targetID {
+			state.Players[index].Dead = true
 			break
+		}
+	}
+	state.Assassination = copyAssassination(state.Assassination)
+	state.Assassination.Target.Dead = true
+	state.Traitors = append([]Player(nil), state.Traitors...)
+	for index := range state.Traitors {
+		if state.Traitors[index].ID == targetID {
+			state.Traitors[index].Dead = true
+		}
+	}
+	if !state.Assassination.Correct && state.Active {
+		state.Phase = ChoosingTeam
+		state.Quest = nil
+		state.ProposalVotes = nil
+		state.QuestCards = nil
+		state.LastProposal = nil
+		if state.Players[state.CaptainIndex].Dead {
+			for range len(state.Players) {
+				state.CaptainIndex = (state.CaptainIndex + 1) % len(state.Players)
+				if !state.Players[state.CaptainIndex].Dead {
+					break
+				}
+			}
 		}
 	}
 	return state
@@ -579,7 +639,7 @@ func normalizeLegacyRoles(state PersistedState) PersistedState {
 func (g *Engine) Snapshot() Snapshot {
 	questSizes := make([]int, TotalRounds)
 	for round := 1; round <= TotalRounds; round++ {
-		questSizes[round-1], _ = QuestSizeFor(len(g.players), round)
+		questSizes[round-1], _ = QuestSizeFor(g.livingPlayerCount(), round)
 	}
 	state := Snapshot{
 		Active: g.active, Phase: g.phase, Round: g.round, TotalRounds: TotalRounds,
@@ -587,7 +647,7 @@ func (g *Engine) Snapshot() Snapshot {
 		Quest:             append([]Player(nil), g.quest...),
 		QuestSize:         g.currentQuestSize(),
 		QuestSizes:        questSizes,
-		ProposalVotesCast: len(g.proposalVotes), ProposalVotesNeeded: len(g.players),
+		ProposalVotesCast: len(g.proposalVotes), ProposalVotesNeeded: g.livingPlayerCount(),
 		RejectedProposals: g.rejectedTeams, ProposalRejectLimit: ProposalRejectionLimit,
 		QuestCardsPlayed: len(g.questCards), QuestCardsNeeded: len(g.quest),
 		SuccessfulQuests: g.successful, FailedQuests: g.failed,
@@ -610,7 +670,7 @@ func (g *Engine) Snapshot() Snapshot {
 }
 
 func (g *Engine) currentQuestSize() int {
-	size, _ := QuestSizeFor(len(g.players), g.round)
+	size, _ := QuestSizeFor(g.livingPlayerCount(), g.round)
 	return size
 }
 
@@ -644,8 +704,46 @@ func (g *Engine) onQuest(playerID string) bool {
 	return false
 }
 
+func (g *Engine) isDead(playerID string) bool {
+	player, exists := g.playerByID[playerID]
+	return exists && player.Dead
+}
+
+func (g *Engine) livingPlayerCount() int {
+	count := 0
+	for _, player := range g.players {
+		if !player.Dead {
+			count++
+		}
+	}
+	return count
+}
+
+func (g *Engine) markDead(playerID string) {
+	player := g.playerByID[playerID]
+	player.Dead = true
+	g.playerByID[playerID] = player
+	for index := range g.players {
+		if g.players[index].ID == playerID {
+			g.players[index] = player
+			break
+		}
+	}
+	for index := range g.traitors {
+		if g.traitors[index].ID == playerID {
+			g.traitors[index] = player
+			break
+		}
+	}
+}
+
 func (g *Engine) advanceCaptain() {
-	g.captainIndex = (g.captainIndex + 1) % len(g.players)
+	for range len(g.players) {
+		g.captainIndex = (g.captainIndex + 1) % len(g.players)
+		if !g.players[g.captainIndex].Dead {
+			return
+		}
+	}
 }
 
 func (g *Engine) resolveQuest(result QuestResult) {
@@ -698,6 +796,7 @@ func copyChoices(source map[string]bool) map[string]bool {
 
 func validatePersistedState(state PersistedState) (map[string]Player, error) {
 	players := make(map[string]Player, len(state.Players))
+	deadPlayers := make([]Player, 0, 1)
 	for _, player := range state.Players {
 		if player.ID == "" || player.Name == "" {
 			return nil, errors.New("persisted game contains an incomplete player")
@@ -706,6 +805,9 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 			return nil, fmt.Errorf("persisted game contains duplicate player %q", player.ID)
 		}
 		players[player.ID] = player
+		if player.Dead {
+			deadPlayers = append(deadPlayers, player)
+		}
 	}
 	if len(players) == 0 {
 		if state.Active || state.Phase != "" || len(state.Roles) != 0 {
@@ -768,6 +870,9 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 	} else if state.Phase != "" && state.Phase != GameComplete {
 		return nil, errors.New("inactive persisted game has an invalid phase")
 	}
+	if state.Active && state.Players[state.CaptainIndex].Dead {
+		return nil, errors.New("active persisted game has a dead captain")
+	}
 	quest := make(map[string]struct{}, len(state.Quest))
 	for _, player := range state.Quest {
 		canonical, exists := players[player.ID]
@@ -798,12 +903,21 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 		attempt := state.Assassination
 		if state.Roles[attempt.Assassin.ID] != Assassin || players[attempt.Assassin.ID].Name != attempt.Assassin.Name ||
 			attempt.Target.ID == attempt.Assassin.ID || players[attempt.Target.ID].Name != attempt.Target.Name ||
-			attempt.Correct != (state.Roles[attempt.Target.ID] == Merlin) {
+			attempt.Correct != (state.Roles[attempt.Target.ID] == Merlin) || !players[attempt.Target.ID].Dead ||
+			!attempt.Target.Dead {
 			return nil, errors.New("persisted game contains an invalid assassination")
+		}
+		if len(deadPlayers) != 1 || deadPlayers[0].ID != attempt.Target.ID {
+			return nil, errors.New("persisted game contains an invalid dead player")
 		}
 		if attempt.Correct && (state.Active || state.Phase != GameComplete || state.Winner != Traitor) {
 			return nil, errors.New("persisted game did not finish after Merlin was assassinated")
 		}
+		if !attempt.Correct && state.Active && state.Phase != ChoosingTeam {
+			return nil, errors.New("persisted game did not return to team selection after a missed assassination")
+		}
+	} else if len(deadPlayers) != 0 {
+		return nil, errors.New("persisted game contains a dead player without an assassination")
 	}
 	if state.Phase == GameComplete && state.Winner != Innocent && state.Winner != Traitor {
 		return nil, errors.New("completed persisted game has no winner")

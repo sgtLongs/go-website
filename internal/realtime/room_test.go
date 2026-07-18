@@ -679,6 +679,9 @@ func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
 		if !state.Active || state.Assassination.Correct || state.Assassination.Assassin.ID != assassin.participant.ID || state.Assassination.Target.ID != wrongTarget.participant.ID {
 			t.Fatalf("public missed assassination = %#v", state)
 		}
+		if confirmationEvent := receiveEvent(t, client); confirmationEvent.Type != "role_confirmations_updated" {
+			t.Fatalf("event = %q, want role_confirmations_updated", confirmationEvent.Type)
+		}
 	}
 
 	room.handleCommand(roomCommand{

@@ -157,6 +157,7 @@
     let rejectedTeamToastTimer;
     let rejectedTeamToastHideTimer;
     let rejectedTeamToastExitAnimation;
+    let assassinationToastKey = "";
 
     const storedDisplayName = window.sessionStorage.getItem(roomDisplayNameKey)
         || window.sessionStorage.getItem(presenceDisplayNameKey)
@@ -823,6 +824,13 @@
     function setGameState(nextState) {
         const previousQuestResult = gameState?.lastQuest?.round;
         const previousProposalResult = gameState?.lastProposal;
+        if (!nextState.assassination && gameState?.assassination) assassinationToastKey = "";
+        const missedAssassination = nextState.assassination && !nextState.assassination.correct && !gameState?.assassination;
+        if (missedAssassination) {
+            deferredQuestResult = null;
+            dismissProposalResult(false);
+            dismissQuestResult(true);
+        }
         if (nextState.phase === "complete") {
             deferredQuestResult = null;
             dismissProposalResult(false);
@@ -1290,14 +1298,16 @@
 
     function renderRole() {
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
+        const dead = isDeadPlayer(playerID);
         const assignedRole = role ? formatRole(role) : (isPlayer ? "Assigning…" : "Spectator");
         roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
         roleRevealHint.hidden = !roleRevealed;
         roleReveal.classList.toggle("revealed", roleRevealed);
+        roleReveal.classList.toggle("traitor", roleRevealed && role === "traitor");
         roleReveal.classList.toggle("merlin", roleRevealed && role === "merlin");
         roleReveal.classList.toggle("assassin", roleRevealed && role === "assassin");
-        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
-        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
+        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination && !dead;
+        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active && !dead;
         roleReveal.hidden = showAssassinAction || showMerlinAction;
         assassinRoleAction.hidden = !showAssassinAction;
         merlinRoleAction.hidden = !showMerlinAction;
@@ -1306,7 +1316,7 @@
     }
 
     function renderRoleConfirmation() {
-        const shouldShow = Boolean(role) && !roleConfirmed && !gameStartCountdownActive && gameState?.phase !== "complete";
+        const shouldShow = Boolean(role) && !roleConfirmed && !isDeadPlayer(playerID) && !gameStartCountdownActive && gameState?.phase !== "complete";
         const wasHidden = roleConfirmation.hidden;
         roleConfirmation.hidden = !shouldShow;
         document.body.classList.toggle("confirming-role", shouldShow);
@@ -1358,6 +1368,12 @@
 
     function renderLastResult() {
         const result = roundResult;
+        const attempt = gameState.assassination;
+        if (attempt && !attempt.correct) {
+            const toastKey = `${attempt.assassin.id}:${attempt.target.id}`;
+            if (assassinationToastKey !== toastKey) showAssassinationToast(attempt, toastKey);
+            if (!result.hidden && result.classList.contains("assassination-toast")) return;
+        }
         if (gameState.lastQuest) {
             dismissRejectedTeamToast(true);
             rejectedTeamToastKey = "";
@@ -1390,6 +1406,34 @@
         roundResult.hidden = false;
         window.clearTimeout(rejectedTeamToastTimer);
         rejectedTeamToastTimer = window.setTimeout(dismissRejectedTeamToast, 5000);
+    }
+
+    function showAssassinationToast(attempt, toastKey) {
+        dismissRejectedTeamToast(true);
+        assassinationToastKey = toastKey;
+        rejectedTeamToastKey = "";
+        window.clearTimeout(rejectedTeamToastHideTimer);
+        rejectedTeamToastExitAnimation?.cancel();
+        rejectedTeamToastExitAnimation = null;
+
+        const assassinName = document.createElement("strong");
+        assassinName.textContent = attempt.assassin.name;
+        const targetName = document.createElement("strong");
+        targetName.textContent = attempt.target.name;
+        const captainName = document.createElement("strong");
+        captainName.textContent = gameState.captain.name;
+        roundResult.replaceChildren(
+            assassinName,
+            document.createTextNode(", the Assassin, tried to assassinate "),
+            targetName,
+            document.createTextNode(". They were not Merlin and are now dead. Captain "),
+            captainName,
+            document.createTextNode(" will choose a new quest team."),
+        );
+        roundResult.className = "round-result failed team-rejected-toast assassination-toast";
+        roundResult.hidden = false;
+        window.clearTimeout(rejectedTeamToastTimer);
+        rejectedTeamToastTimer = window.setTimeout(dismissRejectedTeamToast, 7000);
     }
 
     function dismissRejectedTeamToast(immediately = false) {
@@ -1452,20 +1496,21 @@
 
         renderQuestCards(byID("captain-quest-cards"));
         renderVoteFailureTrackerFor(byID("captain-vote-failure-tracker"));
-        questTeamSelectionOrder = questTeamSelectionOrder.filter((id) => gameState.players.some((player) => player.id === id));
+        questTeamSelectionOrder = questTeamSelectionOrder.filter((id) => gameState.players.some((player) => player.id === id && !player.dead));
         const options = byID("quest-team-options");
         options.replaceChildren();
         for (const player of gameState.players) {
             const label = document.createElement("label");
-            label.className = "player-option";
+            label.className = `player-option${player.dead ? " dead" : ""}`;
             const input = document.createElement("input");
             input.type = "checkbox";
             input.name = "quest-player";
             input.value = player.id;
+            input.disabled = Boolean(player.dead);
             input.checked = questTeamSelectionOrder.includes(player.id);
             input.addEventListener("change", updateTeamSelection);
             const name = document.createElement("span");
-            name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            name.textContent = `${player.id === playerID ? `${player.name} (you)` : player.name}${player.dead ? " — Dead" : ""}`;
             label.append(input, name);
             options.append(label);
         }
@@ -1518,12 +1563,14 @@
     function renderProposal() {
         renderTeam(byID("proposed-team"), gameState.quest);
         scheduleProposedTeamLayout();
-        const canVote = Boolean(role);
+        const canVote = Boolean(role) && !isDeadPlayer(playerID);
         const controls = byID("proposal-controls");
         controls.hidden = !canVote || submittedProposalVote;
         byID("proposal-progress").textContent = submittedProposalVote
             ? `Vote submitted. Waiting for the others (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
-            : !canVote
+            : isDeadPlayer(playerID)
+                ? `You are dead and cannot vote. Waiting for the others (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
+                : !canVote
                 ? `Waiting for anonymous votes (${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded}).`
                 : `${gameState.proposalVotesCast}/${gameState.proposalVotesNeeded} votes submitted.`;
     }
@@ -1720,6 +1767,7 @@
         phaseKey = "";
         submittedProposalVote = false;
         submittedQuestCard = false;
+        assassinationToastKey = "";
         showOnly(waitingView);
         waitingView.append(startForm);
         startForm.hidden = !isHost;
@@ -1737,19 +1785,28 @@
         assassinatePlayerButton.hidden = !(role === "assassin" && gameState?.active && !attempt);
         assassinationStatus.hidden = !attempt;
         if (!attempt) {
-            assassinationStatus.textContent = "";
+            assassinationStatus.replaceChildren();
             return;
         }
-        assassinationStatus.textContent = attempt.correct
-            ? `${attempt.assassin.name} assassinated ${attempt.target.name}, who was Merlin.`
-            : `${attempt.assassin.name} tried to assassinate ${attempt.target.name}. The guess was wrong, so the game continues.`;
+        const assassinName = document.createElement("strong");
+        assassinName.textContent = attempt.assassin.name;
+        const targetName = document.createElement("strong");
+        targetName.textContent = attempt.target.name;
+        assassinationStatus.replaceChildren(
+            assassinName,
+            document.createTextNode(attempt.correct ? ", the Assassin, assassinated " : ", the Assassin, tried to assassinate "),
+            targetName,
+            document.createTextNode(attempt.correct
+                ? ", who was Merlin."
+                : ". They were not Merlin and are now dead."),
+        );
     }
 
     function renderAssassinationOptions() {
         assassinationOptions.replaceChildren();
         confirmAssassination.disabled = true;
         for (const player of gameState?.players || []) {
-            if (player.id === playerID) continue;
+            if (player.id === playerID || player.dead) continue;
             const label = document.createElement("label");
             label.className = "player-option";
             const input = document.createElement("input");
@@ -1806,8 +1863,10 @@
         for (const person of participants.values()) {
             const item = document.createElement("li");
             const disconnected = person.connected === false;
+            const dead = isDeadPlayer(person.id);
             item.classList.toggle("participant-offline", disconnected);
-            item.textContent = disconnected ? `${person.name} · disconnected` : person.name;
+            item.classList.toggle("participant-dead", dead);
+            item.textContent = `${person.name}${dead ? " · dead" : disconnected ? " · disconnected" : ""}`;
             if (person.host) {
                 const badge = document.createElement("span");
                 badge.className = "host-badge";
@@ -1820,8 +1879,8 @@
         for (const player of gameState?.players || []) {
             if (participants.has(player.id)) continue;
             const item = document.createElement("li");
-            item.className = "participant-offline";
-            item.textContent = `${player.name} · disconnected`;
+            item.className = player.dead ? "participant-dead" : "participant-offline";
+            item.textContent = `${player.name} · ${player.dead ? "dead" : "disconnected"}`;
             appendVisibleRoleBadge(item, player.id);
             participantList.append(item);
         }
@@ -1840,6 +1899,10 @@
         badge.className = `role-badge ${visibleRole}`;
         badge.textContent = formatRole(visibleRole);
         item.append(badge);
+    }
+
+    function isDeadPlayer(id) {
+        return Boolean(gameState?.players?.some((player) => player.id === id && player.dead));
     }
 
     if (storedDisplayName && window.sessionStorage.getItem(autoJoinKey) === "true") {

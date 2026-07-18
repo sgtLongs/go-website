@@ -183,6 +183,24 @@ func TestRestorePreservesCustomRolesWithoutSpecialCharacters(t *testing.T) {
 	}
 }
 
+func TestRestoreUpgradesMissedAssassinationToDeadState(t *testing.T) {
+	engine := startedEngine(t)
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	state := engine.Export()
+	state.Players[2].Dead = false
+	state.Assassination.Target.Dead = false
+
+	restored := New()
+	if err := restored.Restore(state); err != nil {
+		t.Fatal(err)
+	}
+	if !restored.IsDead("three") || !restored.Snapshot().Assassination.Target.Dead {
+		t.Fatalf("legacy assassination was not upgraded: %#v", restored.Snapshot())
+	}
+}
+
 func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	engine := startedEngine(t)
 	if got := engine.KnownRolesFor("two"); !reflect.DeepEqual(got, map[string]Role{"one": Traitor, "two": Merlin}) {
@@ -210,6 +228,9 @@ func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	if state.Assassination == nil || state.Assassination.Assassin.ID != "one" || state.Assassination.Target.ID != "three" || state.Assassination.Correct {
 		t.Fatalf("public assassination = %#v", state.Assassination)
 	}
+	if !state.Players[2].Dead || !state.Assassination.Target.Dead || !engine.IsDead("three") {
+		t.Fatalf("assassination target was not marked dead: %#v", state)
+	}
 	if _, err := engine.Assassinate("one", "two"); !errors.Is(err, ErrAssassinationUsed) {
 		t.Fatalf("second attempt error = %v", err)
 	}
@@ -220,6 +241,75 @@ func TestMerlinKnowledgeAndMissedAssassination(t *testing.T) {
 	}
 	if !reflect.DeepEqual(restored.Snapshot(), state) {
 		t.Fatalf("restored assassination = %#v, want %#v", restored.Snapshot(), state)
+	}
+}
+
+func TestDeadPlayerCannotJoinQuestsOrVote(t *testing.T) {
+	engine := startedEngine(t)
+	if err := engine.ProposeQuest("one", []string{"one", "three"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.VoteOnProposal("one", true); err != nil {
+		t.Fatal(err)
+	}
+	if correct, err := engine.Assassinate("one", "three"); err != nil || correct {
+		t.Fatalf("missed assassination = %v, %v", correct, err)
+	}
+
+	state := engine.Snapshot()
+	if state.Phase != ChoosingTeam || len(state.Quest) != 0 || state.ProposalVotesCast != 0 || state.ProposalVotesNeeded != 3 {
+		t.Fatalf("missed assassination did not reset team selection for living players: %#v", state)
+	}
+	if err := engine.ProposeQuest("one", []string{"one", "three"}); !errors.Is(err, ErrInvalidQuest) {
+		t.Fatalf("dead quest member error = %v, want ErrInvalidQuest", err)
+	}
+	if err := engine.ProposeQuest("one", []string{"one", "two"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.VoteOnProposal("three", true); !errors.Is(err, ErrDeadPlayer) {
+		t.Fatalf("dead voter error = %v, want ErrDeadPlayer", err)
+	}
+	for _, id := range []string{"one", "two", "four"} {
+		if _, err := engine.VoteOnProposal(id, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if engine.Snapshot().Phase != PlayingQuest {
+		t.Fatalf("living-player vote did not complete: %#v", engine.Snapshot())
+	}
+}
+
+func TestMissedAssassinationSkipsDeadCaptain(t *testing.T) {
+	choices := []int{0, 0, 2}
+	engine := newWithChooser(func(int) (int, error) {
+		choice := choices[0]
+		choices = choices[1:]
+		return choice, nil
+	})
+	if _, err := engine.Start(testPlayers()); err != nil {
+		t.Fatal(err)
+	}
+	if engine.Snapshot().Captain.ID != "three" {
+		t.Fatalf("initial captain = %q, want three", engine.Snapshot().Captain.ID)
+	}
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	if captain := engine.Snapshot().Captain; captain.ID != "four" || captain.Dead {
+		t.Fatalf("captain after assassination = %#v, want living player four", captain)
+	}
+}
+
+func TestQuestSizeUsesLivingPlayerCount(t *testing.T) {
+	engine := newWithChooser(func(int) (int, error) { return 0, nil })
+	if _, err := engine.Start(testPlayers()[:3]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Assassinate("one", "three"); err != nil {
+		t.Fatal(err)
+	}
+	if size := engine.Snapshot().QuestSize; size != 1 {
+		t.Fatalf("quest size after death = %d, want 1 for two living players", size)
 	}
 }
 

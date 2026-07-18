@@ -390,6 +390,7 @@ li { padding: .75rem 0; border-bottom: 1px solid #31433c; }
     white-space: nowrap;
 }
 .role-reveal.revealed { border: 1px solid #75dfa9; background: #183829; color: #9af0c5; font-size: clamp(1.5rem, 6vw, 2.5rem); font-weight: 900; text-transform: uppercase; }
+.role-reveal.revealed.traitor { border-color: #a96161; background: radial-gradient(circle at top, #713838, #160f0f 65%); color: #ffabab; }
 .role-reveal.revealed.merlin { border-color: #5da9ff; background: #092e5e; color: #fff; }
 .role-reveal.revealed.assassin { border-color: #6c2b2b; background: radial-gradient(circle at top, #2a2a2a, #140909 65%); color: #8f1f1f; }
 .assassin-role-action {
@@ -714,6 +715,13 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     white-space: nowrap;
 }
 .quest-team-selector .player-option:has(input:focus-visible) { outline: 3px solid #b8f5d5; outline-offset: 2px; }
+.quest-team-selector .player-option.dead {
+    border-color: #59413f;
+    background: #1b1716;
+    color: #b18f8b;
+    cursor: not-allowed;
+    opacity: .72;
+}
 .quest-team-selector .player-option { isolation: isolate; }
 .quest-team-selector .player-option > * { position: relative; z-index: 1; }
 .quest-team-selector button[type="submit"] {
@@ -941,6 +949,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     user-select: none;
     animation: team-rejected-toast-in .22s ease-out;
 }
+.round-result.assassination-toast strong { color: #fff; font-weight: 900; }
 .round-result.team-rejected-toast.dismissing {
     animation: team-rejected-toast-out .22s ease-in forwards;
     pointer-events: none;
@@ -989,6 +998,7 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
 .role-badge { margin-left: .5rem; padding: .15rem .4rem; border: 1px solid currentColor; border-radius: 999px; color: #9af0c5; font-size: .7rem; font-style: normal; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .role-badge.traitor, .role-badge.assassin { color: #ffabab; }
 .participant-offline { color: #9ca7a1; font-style: italic; }
+.participant-dead { color: #ffabab; text-decoration: line-through; }
 
 @media (max-width: 480px) {
     .game-settings-fields { grid-template-columns: 1fr; }

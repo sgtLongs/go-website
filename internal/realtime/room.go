@@ -326,6 +326,9 @@ func (r *Room) handleCommand(command roomCommand) {
 	}
 	before := r.state()
 	var err error
+	missedAssassination := false
+	roleConfirmationsChanged := false
+	proposalResultCleared := false
 	switch command.kind {
 	case "transfer_host":
 		if command.generation != r.hostTransferGeneration || len(command.playerIDs) != 1 || time.Now().Before(r.hostReservationExpires) {
@@ -496,7 +499,16 @@ func (r *Room) handleCommand(command roomCommand) {
 		if len(command.playerIDs) != 1 {
 			err = game.ErrInvalidTarget
 		} else {
-			_, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
+			var correct bool
+			correct, err = r.game.Assassinate(command.client.participant.ID, command.playerIDs[0])
+			missedAssassination = err == nil && !correct
+			if missedAssassination {
+				roleConfirmationsChanged = !r.roleConfirmations[command.playerIDs[0]]
+				r.roleConfirmations[command.playerIDs[0]] = true
+				proposalResultCleared = r.proposalResultPending
+				r.proposalResultPending = false
+				r.proposalConfirmations = make(map[string]bool)
+			}
 		}
 	default:
 		return
@@ -509,6 +521,12 @@ func (r *Room) handleCommand(command roomCommand) {
 		return
 	}
 	r.broadcastEvent("game_updated", r.game.Snapshot())
+	if missedAssassination && roleConfirmationsChanged {
+		r.broadcastRoleConfirmations()
+	}
+	if missedAssassination && proposalResultCleared {
+		r.broadcastProposalConfirmations()
+	}
 	if command.kind == "vote_proposal" && r.proposalResultPending {
 		r.broadcastProposalConfirmations()
 	}
@@ -695,7 +713,7 @@ func (r *Room) pendingRoleConfirmations() []game.Player {
 	state := r.game.Snapshot()
 	pending := make([]game.Player, 0, len(state.Players))
 	for _, player := range state.Players {
-		if !r.roleConfirmations[player.ID] {
+		if !player.Dead && !r.roleConfirmations[player.ID] {
 			pending = append(pending, player)
 		}
 	}
@@ -712,7 +730,7 @@ func (r *Room) pendingProposalConfirmations() []game.Player {
 	state := r.game.Snapshot()
 	pending := make([]game.Player, 0, len(state.Players))
 	for _, player := range state.Players {
-		if !r.proposalConfirmations[player.ID] {
+		if !player.Dead && !r.proposalConfirmations[player.ID] {
 			pending = append(pending, player)
 		}
 	}
@@ -812,6 +830,8 @@ func (r *Room) queueGameError(client *Client, err error) {
 		message = "Only the current captain can choose the quest team."
 	case errors.Is(err, game.ErrInvalidQuest):
 		message = fmt.Sprintf("Choose exactly %d different players.", r.game.Snapshot().QuestSize)
+	case errors.Is(err, game.ErrDeadPlayer):
+		message = "Dead players cannot choose teams, join quests, or vote."
 	case errors.Is(err, game.ErrMissingQuestRule):
 		message = "No quest-size rule is configured for this lobby."
 	case errors.Is(err, game.ErrNotProposalVoter):
