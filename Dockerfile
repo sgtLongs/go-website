@@ -5,13 +5,16 @@ FROM golang:1.26.5-alpine AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY cmd ./cmd
 COPY frontend ./frontend
 COPY internal ./internal
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server
 
 FROM alpine:3.23
 
@@ -26,11 +29,12 @@ USER app
 
 ENV ADDRESS=:8080 \
     DATA_PATH=/app/data/game.db \
+    BASE_PATH="" \
     GIN_MODE=release
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1
+    CMD wget -qO- "http://127.0.0.1:8080${BASE_PATH}/health" >/dev/null || exit 1
 
 ENTRYPOINT ["/app/server"]

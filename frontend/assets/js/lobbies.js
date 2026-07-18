@@ -1,4 +1,6 @@
 (() => {
+    const appBaseURL = new URL(document.baseURI);
+    const appURL = (path) => new URL(path, appBaseURL);
     const list = document.querySelector("#lobby-list");
     const status = document.querySelector("#list-status");
     const createDialog = document.querySelector("#create-dialog");
@@ -23,10 +25,10 @@
         event.preventDefault();
         createError.textContent = "";
         const data = Object.fromEntries(new FormData(createForm));
-        const response = await request("/api/lobbies", {method: "POST", body: JSON.stringify(data)});
+        const response = await request(appURL("api/lobbies"), {method: "POST", body: JSON.stringify(data)});
         if (response.ok) {
             const lobby = await response.json();
-            window.location.assign(`/room/${encodeURIComponent(lobby.id)}`);
+            window.location.assign(appURL(`room/${encodeURIComponent(lobby.id)}`).href);
             return;
         }
         createError.textContent = await errorMessage(response);
@@ -36,11 +38,11 @@
         event.preventDefault();
         joinError.textContent = "";
         const password = new FormData(joinForm).get("password");
-        const response = await request(`/api/lobbies/${encodeURIComponent(selectedLobby.id)}/join`, {
+        const response = await request(appURL(`api/lobbies/${encodeURIComponent(selectedLobby.id)}/join`), {
             method: "POST", body: JSON.stringify({password})
         });
         if (response.ok) {
-            window.location.assign(`/room/${encodeURIComponent(selectedLobby.id)}`);
+            window.location.assign(appURL(`room/${encodeURIComponent(selectedLobby.id)}`).href);
             return;
         }
         joinError.textContent = await errorMessage(response);
@@ -51,7 +53,7 @@
         status.textContent = "Loading…";
         list.replaceChildren();
         try {
-            const response = await fetch("/api/lobbies");
+            const response = await fetch(appURL("api/lobbies"));
             if (!response.ok) throw new Error("Could not load lobbies");
             const {lobbies} = await response.json();
             status.textContent = lobbies.length ? "" : "No lobbies yet. Create the first one.";

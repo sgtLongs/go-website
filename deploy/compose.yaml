@@ -1,0 +1,67 @@
+name: go-website
+
+services:
+  proxy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # Caddy obtains and renews the public TLS certificate automatically.
+      SITE_DOMAIN: "${SITE_DOMAIN:-localhost}"
+    volumes:
+      - type: bind
+        # Mount the directory so atomic checkout file replacements are visible
+        # to a running Caddy container before the workflow reloads its config.
+        source: .
+        target: /etc/caddy
+        read_only: true
+      - caddy-data:/data
+      - caddy-config:/config
+
+  production:
+    image: "${PRODUCTION_IMAGE:-ghcr.io/sgtlongs/go-website:production}"
+    restart: unless-stopped
+    environment:
+      ADDRESS: ":8080"
+      BASE_PATH: ""
+      DATA_PATH: "/app/data/game.db"
+      GIN_MODE: "release"
+    volumes:
+      - production-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+
+  beta:
+    image: "${BETA_IMAGE:-ghcr.io/sgtlongs/go-website:beta}"
+    restart: unless-stopped
+    environment:
+      ADDRESS: ":8080"
+      BASE_PATH: "/beta"
+      DATA_PATH: "/app/data/game.db"
+      GIN_MODE: "release"
+    volumes:
+      - beta-data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/beta/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 6
+
+volumes:
+  caddy-data:
+    name: go-website_caddy-data
+  caddy-config:
+    name: go-website_caddy-config
+  production-data:
+    external: true
+    name: go-website_game-data
+  beta-data:
+    name: go-website_beta-game-data

@@ -3,9 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <base href="{{.BaseHref}}">
     <title>Social Deduction Lobby</title>
-    <link rel="stylesheet" href="/assets/css/room.css">
-    <script src="/assets/js/room.js" defer></script>
+    <link rel="stylesheet" href="assets/css/room.css">
+    <script src="assets/js/room.js" defer></script>
 </head>
 <body>
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
@@ -15,9 +16,12 @@
             <button id="sidebar-close" class="sidebar-close" type="button" aria-label="Close room menu">×</button>
         </div>
         <nav aria-label="Room actions">
+            <button id="assassinate-player" class="sidebar-action danger" type="button" hidden>Assassinate a Player</button>
+            <button id="exit-to-lobby" class="sidebar-action secondary" type="button" hidden>Exit to Lobby</button>
             <button id="end-game" class="sidebar-action danger" type="button" hidden>Exit Game</button>
             <button id="leave-room" class="sidebar-action secondary" type="button">Leave to Lobby Browser</button>
         </nav>
+        <p id="assassination-status" class="assassination-status" role="status" hidden></p>
     </aside>
     <dialog id="end-game-dialog" class="end-game-dialog" aria-labelledby="end-game-title" aria-describedby="end-game-description">
         <p class="eyebrow">Host action</p>
@@ -28,6 +32,18 @@
             <button id="confirm-end-game" class="danger" type="button">Exit Game</button>
         </div>
     </dialog>
+    <dialog id="assassination-dialog" class="end-game-dialog assassination-dialog" aria-labelledby="assassination-title" aria-describedby="assassination-description">
+        <p class="eyebrow">Assassin action</p>
+        <h2 id="assassination-title">Who is Merlin?</h2>
+        <p id="assassination-description">You have one attempt. If you choose Merlin, the Minions of Mordred win immediately. If you are wrong, the game continues and everyone will know you are the Assassin.</p>
+        <form id="assassination-form">
+            <fieldset id="assassination-options" class="assassination-options"></fieldset>
+            <div class="dialog-actions">
+                <button id="cancel-assassination" class="secondary" type="button">Keep waiting</button>
+                <button id="confirm-assassination" class="danger" type="submit" disabled>Assassinate</button>
+            </div>
+        </form>
+    </dialog>
     <dialog id="leave-room-dialog" class="end-game-dialog" aria-labelledby="leave-room-title" aria-describedby="leave-room-description">
         <p class="eyebrow">Leave room</p>
         <h2 id="leave-room-title">Leave this room?</h2>
@@ -36,6 +52,58 @@
             <button id="cancel-leave-room" type="button">Stay here</button>
             <button id="confirm-leave-room" class="danger" type="button">Leave to Lobby Browser</button>
         </div>
+    </dialog>
+    <dialog id="game-settings-dialog" class="end-game-dialog game-settings-dialog" aria-labelledby="game-settings-title" aria-describedby="game-settings-description">
+        <p class="eyebrow">Host controls</p>
+        <h2 id="game-settings-title">Game settings</h2>
+        <p id="game-settings-description">Choose the role mix for this game. The role total must match the number of players.</p>
+        <form id="game-settings-form">
+            <div class="game-settings-fields">
+                <label class="innocent" for="game-settings-innocents">
+                    <span>Innocents</span>
+                    <small>Loyal servants with no special power</small>
+                    <span class="role-count-controls">
+                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Innocents">‹</button>
+                        <input id="game-settings-innocents" name="innocents" type="number" min="0" inputmode="numeric" required>
+                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Innocents">›</button>
+                    </span>
+                </label>
+                <label class="minion" for="game-settings-minions">
+                    <span>Minions</span>
+                    <small>Evil players who can fail quests</small>
+                    <span class="role-count-controls">
+                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Minions">‹</button>
+                        <input id="game-settings-minions" name="minions" type="number" min="0" inputmode="numeric" required>
+                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Minions">›</button>
+                    </span>
+                </label>
+                <label class="merlin" for="game-settings-merlins">
+                    <span>Merlins</span>
+                    <small>Loyal servants who know the Minions</small>
+                    <span class="role-count-controls">
+                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Merlins">‹</button>
+                        <input id="game-settings-merlins" name="merlins" type="number" min="0" max="1" inputmode="numeric" required>
+                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Merlins">›</button>
+                    </span>
+                </label>
+                <label class="assassin" for="game-settings-assassins">
+                    <span>Assassins</span>
+                    <small>Minions who share one assassination attempt</small>
+                    <span class="role-count-controls">
+                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Assassins">‹</button>
+                        <input id="game-settings-assassins" name="assassins" type="number" min="0" max="1" inputmode="numeric" required>
+                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Assassins">›</button>
+                    </span>
+                </label>
+            </div>
+            <p id="game-settings-total" class="game-settings-total" aria-live="polite"></p>
+            <p id="game-settings-lobby-warning" class="game-settings-lobby-warning" role="alert" hidden></p>
+            <p id="game-settings-error" class="game-settings-error" role="alert" hidden></p>
+            <div class="dialog-actions">
+                <button id="cancel-game-settings" class="secondary" type="button">Cancel</button>
+                <button id="save-game-settings" type="submit">Save settings</button>
+            </div>
+        </form>
     </dialog>
     <section id="proposal-result-announcement" class="proposal-result-announcement" role="button" tabindex="0" aria-labelledby="proposal-result-title" aria-describedby="proposal-result-detail proposal-result-action" hidden>
         <div class="proposal-result-announcement-content">
@@ -70,15 +138,20 @@
         </div>
     </section>
     <section id="game-starting" class="game-starting" aria-labelledby="game-starting-title" hidden>
+        <button id="game-starting-sidebar-toggle" class="sidebar-toggle game-starting-sidebar-toggle" type="button" aria-label="Open room menu" aria-controls="room-sidebar" aria-expanded="false"><span aria-hidden="true"></span></button>
         <div class="game-starting-content">
             <p class="eyebrow">Get ready</p>
             <h2 id="game-starting-title">Game starting</h2>
             <p id="game-starting-ready-message">Everyone has readied up, the game will start shortly.</p>
             <p id="game-starting-countdown" class="game-starting-countdown" aria-live="polite" hidden></p>
             <ul id="game-starting-players" class="team-list"></ul>
-            <button id="game-starting-ready" type="button">Ready up</button>
+            <div class="game-starting-actions">
+                <button id="game-starting-ready" type="button">Ready up</button>
+                <button id="game-starting-settings" class="secondary" type="button" hidden>Game settings</button>
+            </div>
             <p id="game-starting-status" class="game-starting-status"></p>
         </div>
+        <p id="game-starting-warning-toast" class="game-starting-warning-toast" role="alert" hidden></p>
     </section>
     <main class="room-shell">
 
@@ -98,12 +171,13 @@
                 <p id="waiting-message">Waiting for the host to start a game.</p>
                 <form id="start-form" class="start-row" hidden>
                     <button type="submit">Start game</button>
+                    <button id="lobby-game-settings" class="secondary" type="button">Game settings</button>
                 </form>
             </div>
             <div id="active-view" hidden>
                 <section id="role-waiting-view" class="player-status-view" aria-labelledby="role-waiting-title" hidden>
                     <h2 id="role-waiting-title">Waiting for everyone</h2>
-                    <p>These players are still reading their secret role.</p>
+                    <p>Waiting for every player to confirm their secret role.</p>
                     <ul id="role-confirmation-players" class="team-list"></ul>
                 </section>
                 <div id="main-game-view">
@@ -126,7 +200,38 @@
                 <section class="role-card" aria-label="Secret role">
                     <button id="role-reveal" class="role-reveal" type="button">
                         <span id="role">Reveal Secret Role</span>
+                        <span id="role-reveal-hint" class="role-reveal-hint" hidden>Click to hide</span>
                     </button>
+                    <div id="assassin-role-action" class="assassin-role-action" hidden>
+                        <button id="role-assassinate-player" class="assassin-role-assassinate danger" type="button">Assassinate Player</button>
+                        <div id="assassin-role-slider" class="assassin-role-slider">
+                            <button id="assassin-role-hide" class="assassin-role-name" type="button" aria-label="Assassin. Hide secret role">
+                                <span>Assassin</span>
+                                <span class="role-reveal-hint">Click to hide</span>
+                            </button>
+                            <button id="assassin-slide-toggle" class="assassin-slide-toggle" type="button" aria-label="Reveal assassination action" aria-expanded="false" aria-controls="role-assassinate-player">
+                                <span aria-hidden="true">←</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="merlin-role-action" class="merlin-role-action" hidden>
+                        <div id="merlin-role-slider" class="merlin-role-slider">
+                            <button id="merlin-role-hide" class="merlin-role-name" type="button" aria-label="Merlin. Hide secret role">
+                                <span>Merlin</span>
+                                <span class="role-reveal-hint">Click to hide</span>
+                            </button>
+                            <span class="merlin-slide-toggle" aria-hidden="true">
+                                <span aria-hidden="true">↓</span>
+                            </span>
+                        </div>
+                    </div>
+                    <section id="merlin-knowledge-panel" class="merlin-knowledge-panel" tabindex="-1" aria-labelledby="merlin-knowledge-title" hidden>
+                        <div id="merlin-knowledge-content" class="merlin-knowledge-content">
+                            <h2 id="merlin-knowledge-title" style="margin-top: 16px;">Known Minions</h2>
+                            <ul id="merlin-traitor-list" class="merlin-traitor-list"></ul>
+                            <p class="merlin-knowledge-hint">Swipe up to hide</p>
+                        </div>
+                    </section>
                 </section>
 
                 <p id="round-result" class="round-result" role="status" hidden></p>
@@ -151,9 +256,8 @@
                     <p id="waiting-for-captain"></p>
                 </section>
 
-                <section id="proposal-view" class="phase-view proposal-view" hidden>
+                <section id="proposal-view" class="phase-view proposal-view" style="padding-top: 20px" hidden>
                     <div class="proposal-team">
-                        <p class="eyebrow">Team vote</p>
                         <h3>Selected for this quest</h3>
                         <ul id="proposed-team" class="team-list proposed-team"></ul>
                     </div>
@@ -186,7 +290,7 @@
                 <h2 id="winner-message"></h2>
                 <p id="personal-result" class="personal-result"></p>
                 <p id="victory-reason" class="victory-reason"></p>
-                <p>The traitor was <strong id="traitor-name"></strong>.</p>
+                <p><span id="traitor-summary-label">The Minion of Mordred was</span> <strong id="traitor-name"></strong>.</p>
                 <section class="quest-board" aria-labelledby="final-quest-board-title">
                     <h3 id="final-quest-board-title">Quest results</h3>
                     <ol id="final-quest-cards" class="quest-cards"></ol>

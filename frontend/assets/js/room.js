@@ -1,4 +1,6 @@
 (() => {
+    const appBaseURL = new URL(document.baseURI);
+    const storagePrefix = appBaseURL.pathname === "/" ? "" : `app:${appBaseURL.pathname}:`;
     const roomID = decodeURIComponent(window.location.pathname.split("/").pop());
     const byID = (id) => document.querySelector(`#${id}`);
     const joinPanel = byID("join-panel");
@@ -15,16 +17,39 @@
     const activeView = byID("active-view");
     const endedView = byID("ended-view");
     const startForm = byID("start-form");
+    const lobbyGameSettings = byID("lobby-game-settings");
     const waitingMessage = byID("waiting-message");
     const nextGameMessage = byID("next-game-message");
     const roleElement = byID("role");
+    const roleRevealHint = byID("role-reveal-hint");
     const roleReveal = byID("role-reveal");
+    const assassinRoleAction = byID("assassin-role-action");
+    const assassinRoleSlider = byID("assassin-role-slider");
+    const assassinRoleHide = byID("assassin-role-hide");
+    const assassinSlideToggle = byID("assassin-slide-toggle");
+    const roleAssassinatePlayerButton = byID("role-assassinate-player");
+    const merlinRoleAction = byID("merlin-role-action");
+    const merlinRoleSlider = byID("merlin-role-slider");
+    const merlinKnowledgePanel = byID("merlin-knowledge-panel");
+    const merlinKnowledgeContent = byID("merlin-knowledge-content");
+    const merlinTraitorList = byID("merlin-traitor-list");
+    const roleCard = document.querySelector(".role-card");
     const roleConfirmation = byID("role-confirmation");
     const roleConfirmationTitle = byID("role-confirmation-title");
     const roleConfirmationHelp = byID("role-confirmation-help");
     const roleWaitingView = byID("role-waiting-view");
     const gameStartingView = byID("game-starting");
     const gameStartingReady = byID("game-starting-ready");
+    const gameStartingWarningToast = byID("game-starting-warning-toast");
+    const gameStartingSettings = byID("game-starting-settings");
+    const gameSettingsDialog = byID("game-settings-dialog");
+    const gameSettingsForm = byID("game-settings-form");
+    const gameSettingsTotal = byID("game-settings-total");
+    const gameSettingsLobbyWarning = byID("game-settings-lobby-warning");
+    const gameSettingsError = byID("game-settings-error");
+    const saveGameSettings = byID("save-game-settings");
+    const cancelGameSettings = byID("cancel-game-settings");
+    const mobileRoleCountControls = window.matchMedia("(max-width: 480px)");
     const mainGameView = byID("main-game-view");
     const questResultAnnouncement = byID("quest-result-announcement");
     const questResultTitle = byID("quest-result-title");
@@ -40,8 +65,10 @@
     const sidebar = byID("room-sidebar");
     const sidebarToggle = byID("sidebar-toggle");
     const captainSidebarToggle = byID("captain-sidebar-toggle");
+    const gameStartingSidebarToggle = byID("game-starting-sidebar-toggle");
     const sidebarClose = byID("sidebar-close");
     const sidebarBackdrop = byID("sidebar-backdrop");
+    const exitToLobbyButton = byID("exit-to-lobby");
     const endGameButton = byID("end-game");
     const endGameDialog = byID("end-game-dialog");
     const cancelEndGame = byID("cancel-end-game");
@@ -50,10 +77,19 @@
     const leaveRoomDialog = byID("leave-room-dialog");
     const cancelLeaveRoom = byID("cancel-leave-room");
     const confirmLeaveRoom = byID("confirm-leave-room");
+    const assassinatePlayerButton = byID("assassinate-player");
+    const assassinationDialog = byID("assassination-dialog");
+    const assassinationForm = byID("assassination-form");
+    const assassinationOptions = byID("assassination-options");
+    const confirmAssassination = byID("confirm-assassination");
+    const cancelAssassination = byID("cancel-assassination");
+    const assassinationStatus = byID("assassination-status");
 
     const participants = new Map();
-    const autoJoinKey = `room-auto-join:${roomID}`;
-    const roomDisplayNameKey = `room-display-name:${roomID}`;
+    const autoJoinKey = `${storagePrefix}room-auto-join:${roomID}`;
+    const roomDisplayNameKey = `${storagePrefix}room-display-name:${roomID}`;
+    const presenceDisplayNameKey = `${storagePrefix}presence-display-name`;
+    const tabTokenKey = `${storagePrefix}room-tab-token:${roomID}`;
     let socket;
     let reconnectTimer;
     let reconnectAttempts = 0;
@@ -63,18 +99,36 @@
     let isHost = false;
     let playerID = "";
     let role = "";
+    let knownRoles = {};
     let roleRevealed = false;
+    let assassinActionRevealed = false;
+    let assassinDragStartX = 0;
+    let assassinDragStartOffset = 0;
+    let assassinDragOffset = 0;
+    let assassinDragging = false;
+    let suppressAssassinClick = false;
+    let merlinTileDragStartY = 0;
+    let merlinTileDragOffset = 0;
+    let merlinTileDragging = false;
+    let suppressMerlinClick = false;
+    let merlinPanelDragStartY = 0;
+    let merlinPanelDragOffset = 0;
+    let merlinPanelDragging = false;
+    let merlinKnowledgeOpen = false;
+    let merlinKnowledgeHideTimer;
     let roleConfirmed = false;
     let pendingRoleConfirmations = [];
     let pendingGameStartConfirmations = [];
     let gameStartPlayers = [];
     let gameStarting = false;
     let gameStartConfirmed = false;
+    let gameSettings = {minions: 0, innocents: 0, merlins: 1, assassins: 1};
     let gameStartCountdownActive = false;
     let gameStartCountdownSeconds = 0;
     let gameStartCountdownTimer;
     let gameStartPulseTimer;
     let unreadyGlowTimer;
+    let gameStartingWarningTimer;
     let gameState = null;
     let phaseKey = "";
     let submittedProposalVote = false;
@@ -86,30 +140,43 @@
     let proposalResultConfirmed = false;
     let proposalResultRevealTimer;
     let proposalResultCountdownTimer;
+    let activeProposalResultKey = "";
     let deferredQuestResult = null;
     let questTeamSelectionOrder = [];
     let captainLayoutFrame;
+    let proposedTeamLayoutFrame;
+    let questTeamLayoutFrame;
     let rejectedTeamToastKey = "";
     let rejectedTeamToastTimer;
     let rejectedTeamToastHideTimer;
     let rejectedTeamToastExitAnimation;
 
-    const storedDisplayName = window.localStorage.getItem(roomDisplayNameKey)
-        || window.localStorage.getItem("presence-display-name")
+    const storedDisplayName = window.sessionStorage.getItem(roomDisplayNameKey)
+        || window.sessionStorage.getItem(presenceDisplayNameKey)
         || "";
     displayName.value = storedDisplayName;
 
     sidebarToggle.addEventListener("click", openSidebar);
     captainSidebarToggle.addEventListener("click", openSidebar);
+    gameStartingSidebarToggle.addEventListener("click", openSidebar);
     sidebarClose.addEventListener("click", closeSidebar);
     sidebarBackdrop.addEventListener("click", closeSidebar);
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && sidebar.classList.contains("open")) closeSidebar();
+        if (event.key === "Escape" && merlinKnowledgeOpen) closeMerlinKnowledge();
     });
-    window.addEventListener("resize", scheduleCaptainPlayerLayout);
+    window.addEventListener("resize", () => {
+        scheduleCaptainPlayerLayout();
+        scheduleProposedTeamLayout();
+        scheduleQuestTeamLayout();
+    });
     endGameButton.addEventListener("click", () => {
         closeSidebar(false);
         endGameDialog.showModal();
+    });
+    exitToLobbyButton.addEventListener("click", () => {
+        closeSidebar(false);
+        send({ type: "cancel_game_start" });
     });
     cancelEndGame.addEventListener("click", () => endGameDialog.close());
     confirmEndGame.addEventListener("click", () => {
@@ -119,8 +186,84 @@
     endGameDialog.addEventListener("click", (event) => {
         if (event.target === endGameDialog) endGameDialog.close();
     });
+    gameStartingSettings.addEventListener("click", openGameSettingsDialog);
+    lobbyGameSettings.addEventListener("click", openGameSettingsDialog);
+    cancelGameSettings.addEventListener("click", () => gameSettingsDialog.close());
+    gameSettingsDialog.addEventListener("click", (event) => {
+        if (event.target === gameSettingsDialog) gameSettingsDialog.close();
+    });
+    gameSettingsForm.addEventListener("input", renderGameSettingsValidation);
+    gameSettingsForm.addEventListener("click", (event) => {
+        const stepButton = event.target.closest(".role-count-step");
+        if (!stepButton) return;
+        const input = stepButton.closest(".role-count-controls").querySelector("input");
+        const direction = Number(stepButton.dataset.direction);
+        const minimum = Number(input.min) || 0;
+        const maximum = Number(input.max) || gameStartPlayers.length;
+        input.value = String(Math.max(minimum, Math.min(maximum, Number(input.value) + direction)));
+        input.dispatchEvent(new Event("input", {bubbles: true}));
+    });
+    mobileRoleCountControls.addEventListener("change", updateMobileRoleCountInputs);
+    updateMobileRoleCountInputs();
+    gameSettingsForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const settings = readGameSettingsForm();
+        if (!validGameSettings(settings)) {
+            renderGameSettingsValidation();
+            return;
+        }
+        send({type: "update_game_settings", settings});
+        gameSettingsDialog.close();
+    });
     roleReveal.addEventListener("click", () => {
         roleRevealed = !roleRevealed;
+        if (!roleRevealed) closeMerlinKnowledge();
+        renderRole();
+    });
+    assassinRoleHide.addEventListener("click", () => {
+        if (suppressAssassinClick) {
+            suppressAssassinClick = false;
+            return;
+        }
+        roleRevealed = false;
+        setAssassinActionRevealed(false);
+        renderRole();
+    });
+    assassinSlideToggle.addEventListener("click", () => {
+        if (suppressAssassinClick) {
+            suppressAssassinClick = false;
+            return;
+        }
+        setAssassinActionRevealed(!assassinActionRevealed);
+    });
+    assassinRoleSlider.addEventListener("pointerdown", beginAssassinDrag);
+    assassinRoleSlider.addEventListener("pointermove", moveAssassinDrag);
+    assassinRoleSlider.addEventListener("pointerup", finishAssassinDrag);
+    assassinRoleSlider.addEventListener("pointercancel", cancelAssassinDrag);
+    window.addEventListener("resize", () => setAssassinActionRevealed(assassinActionRevealed));
+    merlinRoleSlider.addEventListener("click", () => {
+        if (suppressMerlinClick) {
+            suppressMerlinClick = false;
+            return;
+        }
+        roleRevealed = false;
+        closeMerlinKnowledge(merlinKnowledgeOpen);
+        renderRole();
+    });
+    merlinRoleSlider.addEventListener("pointerdown", beginMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointermove", moveMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointerup", finishMerlinTileDrag);
+    merlinRoleSlider.addEventListener("pointercancel", cancelMerlinTileDrag);
+    merlinKnowledgePanel.addEventListener("pointerdown", beginMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointermove", moveMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointerup", finishMerlinPanelDrag);
+    merlinKnowledgePanel.addEventListener("pointercancel", cancelMerlinPanelDrag);
+    document.addEventListener("click", (event) => {
+        const roleSpecificViewOpen = !assassinRoleAction.hidden || !merlinRoleAction.hidden;
+        if (!roleSpecificViewOpen || roleCard.contains(event.target)) return;
+        roleRevealed = false;
+        setAssassinActionRevealed(false);
+        closeMerlinKnowledge(true);
         renderRole();
     });
     leaveRoomButton.addEventListener("click", () => {
@@ -130,21 +273,234 @@
     cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
     confirmLeaveRoom.addEventListener("click", () => {
         intentionallyClosed = true;
-        window.localStorage.removeItem(autoJoinKey);
         socket?.close();
-        window.location.assign("/");
+        window.location.assign(appBaseURL.href);
     });
     leaveRoomDialog.addEventListener("click", (event) => {
         if (event.target === leaveRoomDialog) leaveRoomDialog.close();
     });
+    assassinatePlayerButton.addEventListener("click", () => {
+        closeSidebar(false);
+        openAssassinationDialog();
+    });
+    roleAssassinatePlayerButton.addEventListener("click", openAssassinationDialog);
+    cancelAssassination.addEventListener("click", () => assassinationDialog.close());
+    assassinationDialog.addEventListener("click", (event) => {
+        if (event.target === assassinationDialog) assassinationDialog.close();
+    });
+    assassinationForm.addEventListener("change", () => {
+        confirmAssassination.disabled = !assassinationForm.elements.namedItem("assassination-target")?.value;
+    });
+    assassinationForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const target = assassinationForm.elements.namedItem("assassination-target")?.value;
+        if (!target) return;
+        send({ type: "assassinate", playerIds: [target] });
+        assassinationDialog.close();
+    });
+
+    function openAssassinationDialog() {
+        if (role !== "assassin" || !gameState?.active || gameState.assassination) return;
+        renderAssassinationOptions();
+        assassinationDialog.showModal();
+    }
+
+    function assassinRevealDistance() {
+        return Math.max(0, assassinRoleAction.clientWidth - 56);
+    }
+
+    function setAssassinSliderOffset(offset) {
+        assassinDragOffset = Math.max(-assassinRevealDistance(), Math.min(0, offset));
+        assassinRoleSlider.style.setProperty("--assassin-slider-x", `${assassinDragOffset}px`);
+    }
+
+    function setAssassinActionRevealed(revealed) {
+        assassinActionRevealed = revealed && !assassinRoleAction.hidden;
+        assassinRoleAction.classList.toggle("action-revealed", assassinActionRevealed);
+        assassinSlideToggle.setAttribute("aria-expanded", String(assassinActionRevealed));
+        assassinSlideToggle.setAttribute("aria-label", assassinActionRevealed ? "Hide assassination action" : "Reveal assassination action");
+        setAssassinSliderOffset(assassinActionRevealed ? -assassinRevealDistance() : 0);
+    }
+
+    function beginAssassinDrag(event) {
+        if (event.button !== 0 || assassinRoleAction.hidden) return;
+        assassinDragging = true;
+        suppressAssassinClick = false;
+        assassinDragStartX = event.clientX;
+        assassinDragStartOffset = assassinDragOffset;
+        assassinRoleSlider.classList.add("dragging");
+        assassinRoleSlider.setPointerCapture(event.pointerId);
+    }
+
+    function moveAssassinDrag(event) {
+        if (!assassinDragging) return;
+        const movement = event.clientX - assassinDragStartX;
+        if (Math.abs(movement) > 5) suppressAssassinClick = true;
+        setAssassinSliderOffset(assassinDragStartOffset + movement);
+    }
+
+    function finishAssassinDrag(event) {
+        if (!assassinDragging) return;
+        assassinDragging = false;
+        assassinRoleSlider.classList.remove("dragging");
+        if (assassinRoleSlider.hasPointerCapture(event.pointerId)) assassinRoleSlider.releasePointerCapture(event.pointerId);
+        setAssassinActionRevealed(assassinDragOffset < -assassinRevealDistance() * .35);
+        if (suppressAssassinClick) window.setTimeout(() => { suppressAssassinClick = false; }, 0);
+    }
+
+    function cancelAssassinDrag(event) {
+        if (!assassinDragging) return;
+        assassinDragging = false;
+        assassinRoleSlider.classList.remove("dragging");
+        if (assassinRoleSlider.hasPointerCapture(event.pointerId)) assassinRoleSlider.releasePointerCapture(event.pointerId);
+        setAssassinActionRevealed(assassinActionRevealed);
+    }
+
+    function beginMerlinTileDrag(event) {
+        if (event.button !== 0 || merlinRoleAction.hidden || merlinKnowledgeOpen) return;
+        merlinTileDragging = true;
+        suppressMerlinClick = false;
+        merlinTileDragStartY = event.clientY;
+        merlinRoleSlider.classList.add("dragging");
+        merlinRoleSlider.setPointerCapture(event.pointerId);
+    }
+
+    function moveMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        const movement = event.clientY - merlinTileDragStartY;
+        if (Math.abs(movement) > 5) suppressMerlinClick = true;
+        merlinTileDragOffset = Math.max(0, movement);
+        if (merlinTileDragOffset > 0) previewMerlinKnowledge(event.clientY);
+    }
+
+    function finishMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        merlinTileDragging = false;
+        merlinRoleSlider.classList.remove("dragging");
+        if (merlinRoleSlider.hasPointerCapture(event.pointerId)) merlinRoleSlider.releasePointerCapture(event.pointerId);
+        const shouldOpen = event.clientY >= merlinRoleAction.getBoundingClientRect().bottom + 12;
+        merlinTileDragOffset = 0;
+        merlinKnowledgePanel.classList.remove("revealing");
+        void merlinKnowledgePanel.offsetHeight;
+        if (shouldOpen) openMerlinKnowledge();
+        else closeMerlinKnowledge();
+        merlinKnowledgeContent.style.removeProperty("transform");
+        if (suppressMerlinClick) window.setTimeout(() => { suppressMerlinClick = false; }, 0);
+    }
+
+    function cancelMerlinTileDrag(event) {
+        if (!merlinTileDragging) return;
+        merlinTileDragging = false;
+        merlinRoleSlider.classList.remove("dragging");
+        if (merlinRoleSlider.hasPointerCapture(event.pointerId)) merlinRoleSlider.releasePointerCapture(event.pointerId);
+        merlinTileDragOffset = 0;
+        merlinKnowledgePanel.classList.remove("revealing");
+        void merlinKnowledgePanel.offsetHeight;
+        closeMerlinKnowledge();
+        merlinKnowledgeContent.style.removeProperty("transform");
+    }
+
+    function prepareMerlinKnowledge() {
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        merlinTraitorList.replaceChildren();
+        const traitors = (gameState.players || []).filter((player) => knownRoles[player.id] === "traitor");
+        for (const player of traitors) {
+            const item = document.createElement("li");
+            item.textContent = player.name;
+            merlinTraitorList.append(item);
+        }
+        if (traitors.length === 0) {
+            const item = document.createElement("li");
+            item.textContent = "No known Minions";
+            merlinTraitorList.append(item);
+        }
+        merlinKnowledgePanel.hidden = false;
+        roleCard.classList.add("merlin-list-open");
+    }
+
+    function previewMerlinKnowledge(pointerY) {
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        if (merlinKnowledgePanel.hidden) prepareMerlinKnowledge();
+        roleCard.classList.add("merlin-list-open");
+        const panelBounds = merlinKnowledgePanel.getBoundingClientRect();
+        const contentHeight = merlinKnowledgeContent.getBoundingClientRect().height;
+        const revealedPixels = Math.max(0, Math.min(contentHeight, pointerY - panelBounds.top));
+        merlinKnowledgePanel.classList.add("revealing");
+        merlinKnowledgeContent.style.transform = `translateY(${-contentHeight + revealedPixels}px)`;
+    }
+
+    function openMerlinKnowledge() {
+        if (role !== "merlin" || !roleRevealed || !gameState?.active) return;
+        prepareMerlinKnowledge();
+        merlinKnowledgeOpen = true;
+        void merlinKnowledgePanel.offsetHeight;
+        merlinKnowledgePanel.classList.add("open");
+        setMerlinPanelOffset(0);
+    }
+
+    function closeMerlinKnowledge(immediately = false) {
+        if (!merlinKnowledgeOpen && merlinKnowledgePanel.hidden) {
+            roleCard.classList.remove("merlin-list-open");
+            return;
+        }
+        merlinKnowledgeOpen = false;
+        merlinKnowledgePanel.classList.remove("open");
+        setMerlinPanelOffset(0);
+        window.clearTimeout(merlinKnowledgeHideTimer);
+        if (immediately) {
+            merlinKnowledgePanel.hidden = true;
+            roleCard.classList.remove("merlin-list-open");
+            return;
+        }
+        merlinKnowledgeHideTimer = window.setTimeout(() => {
+            if (merlinKnowledgeOpen) return;
+            merlinKnowledgePanel.hidden = true;
+            roleCard.classList.remove("merlin-list-open");
+        }, 240);
+    }
+
+    function setMerlinPanelOffset(offset) {
+        merlinPanelDragOffset = Math.min(0, offset);
+        merlinKnowledgeContent.style.setProperty("--merlin-panel-y", `${merlinPanelDragOffset}px`);
+    }
+
+    function beginMerlinPanelDrag(event) {
+        if (event.button !== 0 || !merlinKnowledgeOpen) return;
+        merlinPanelDragging = true;
+        merlinPanelDragStartY = event.clientY;
+        merlinKnowledgePanel.classList.add("dragging");
+        merlinKnowledgePanel.setPointerCapture(event.pointerId);
+    }
+
+    function moveMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        setMerlinPanelOffset(event.clientY - merlinPanelDragStartY);
+    }
+
+    function finishMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        merlinPanelDragging = false;
+        merlinKnowledgePanel.classList.remove("dragging");
+        if (merlinKnowledgePanel.hasPointerCapture(event.pointerId)) merlinKnowledgePanel.releasePointerCapture(event.pointerId);
+        if (merlinPanelDragOffset <= -48) closeMerlinKnowledge();
+        else setMerlinPanelOffset(0);
+    }
+
+    function cancelMerlinPanelDrag(event) {
+        if (!merlinPanelDragging) return;
+        merlinPanelDragging = false;
+        merlinKnowledgePanel.classList.remove("dragging");
+        if (merlinKnowledgePanel.hasPointerCapture(event.pointerId)) merlinKnowledgePanel.releasePointerCapture(event.pointerId);
+        setMerlinPanelOffset(0);
+    }
 
     joinForm.addEventListener("submit", (event) => {
         event.preventDefault();
         chosenName = displayName.value.trim();
         if (!chosenName) return;
-        window.localStorage.setItem("presence-display-name", chosenName);
-        window.localStorage.setItem(roomDisplayNameKey, chosenName);
-        window.localStorage.setItem(autoJoinKey, "true");
+        window.sessionStorage.setItem(presenceDisplayNameKey, chosenName);
+        window.sessionStorage.setItem(roomDisplayNameKey, chosenName);
+        window.sessionStorage.setItem(autoJoinKey, "true");
         joinPanel.hidden = true;
         presencePanel.hidden = false;
         connect();
@@ -162,6 +518,10 @@
         send({ type: "start_game" });
     });
     gameStartingReady.addEventListener("click", () => {
+        if (isHost && roleCountTotal(gameSettings) !== connectedGameStartPlayerCount()) {
+            showGameStartSettingsWarning();
+            return;
+        }
         const wasReady = gameStartConfirmed;
         gameStartConfirmed = !gameStartConfirmed;
         send({ type: "confirm_game_start" });
@@ -205,11 +565,21 @@
         if (!roundResult.hidden && roundResult.classList.contains("team-rejected-toast")) dismissRejectedTeamToast();
     });
 
-    function connect() {
+    async function connect() {
         setStatus("Connecting…", false);
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const url = `${protocol}//${window.location.host}/ws/rooms/${encodeURIComponent(roomID)}?name=${encodeURIComponent(chosenName)}`;
-        socket = new WebSocket(url);
+        let tabToken;
+        try {
+            tabToken = await ensureTabToken();
+        } catch (error) {
+            setStatus(error.message, false);
+            joinPanel.hidden = false;
+            presencePanel.hidden = true;
+            return;
+        }
+        const url = new URL(`ws/rooms/${encodeURIComponent(roomID)}`, appBaseURL);
+        url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        url.searchParams.set("name", chosenName);
+        socket = new WebSocket(url, [`lobby-tab-token.${tabToken}`]);
 
         socket.addEventListener("open", () => {
             reconnectAttempts = 0;
@@ -226,9 +596,10 @@
                 const currentParticipant = participants.get(playerID);
                 if (currentParticipant) {
                     chosenName = currentParticipant.name;
-                    window.localStorage.setItem(roomDisplayNameKey, chosenName);
+                    window.sessionStorage.setItem(roomDisplayNameKey, chosenName);
                 }
                 role = event.data.role || "";
+                knownRoles = event.data.knownRoles || {};
                 gameState = event.data.game || null;
                 roleConfirmed = Boolean(event.data.roleConfirmed);
                 pendingRoleConfirmations = event.data.pendingRoleConfirmations || [];
@@ -240,18 +611,24 @@
                 pendingGameStartConfirmations = event.data.pendingGameStartConfirmations || [];
                 gameStartPlayers = event.data.gameStartPlayers || [];
                 gameStartConfirmed = Boolean(event.data.gameStartConfirmed);
+                gameSettings = event.data.gameSettings || defaultGameSettings(gameStartPlayers.length);
                 phaseKey = gameState
                     ? `${gameState.round}:${gameState.phase}:${gameState.captain?.id || ""}`
                     : "";
                 renderGame();
                 renderGameStarting();
                 if (pendingProposalConfirmations.length && gameState?.lastProposal) {
-                    announceProposalResult(gameState.lastProposal, gameState, proposalResultConfirmed);
+                    const proposalResultKey = getProposalResultKey(gameState.lastProposal, gameState);
+                    if (proposalResultAnnouncement.hidden || activeProposalResultKey !== proposalResultKey) {
+                        announceProposalResult(gameState.lastProposal, gameState, proposalResultConfirmed);
+                    }
                 }
             } else if (event.type === "user_joined") {
                 participants.set(event.data.id, event.data);
+                if (gameStarting) renderGameStarting();
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
+                if (gameStarting) renderGameStarting();
             } else if (event.type === "game_started") {
                 // Keep the starting screen covering the room until the following
                 // role_assigned event is ready to replace it. WebSocket messages
@@ -262,25 +639,30 @@
                 pendingGameStartConfirmations = [];
                 renderGameStarting();
                 role = "";
+                knownRoles = {};
                 roleRevealed = false;
                 roleConfirmed = false;
                 pendingRoleConfirmations = event.data.players || [];
                 setGameState(event.data);
             } else if (event.type === "role_assigned") {
                 role = event.data.role;
+                knownRoles = event.data.knownRoles || {};
                 roleRevealed = false;
                 gameStarting = false;
                 stopGameStartCountdown();
                 gameStartPlayers = [];
+                if (gameSettingsDialog.open) gameSettingsDialog.close();
                 renderGameStarting();
                 renderRole();
                 renderPhase();
                 renderRoleConfirmation();
+                updateAssassinationVisibility();
             } else if (event.type === "game_starting") {
                 gameStarting = true;
                 gameStartConfirmed = false;
                 pendingGameStartConfirmations = event.data.pendingPlayers || [];
                 gameStartPlayers = event.data.players || [];
+                gameSettings = event.data.settings || defaultGameSettings(gameStartPlayers.length);
                 renderGameStarting();
             } else if (event.type === "game_start_confirmations_updated") {
                 pendingGameStartConfirmations = event.data.pendingPlayers || [];
@@ -289,13 +671,21 @@
                 else if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
                 if (event.data.unreadiedPlayer) showPlayerUnreadied(event.data.unreadiedPlayer.id);
-            } else if (event.type === "game_start_cancelled") {
-                gameStarting = false;
-                gameStartConfirmed = false;
-                pendingGameStartConfirmations = [];
-                gameStartPlayers = [];
+            } else if (event.type === "game_start_roster_updated") {
+                gameStartPlayers = event.data.players || [];
+                pendingGameStartConfirmations = event.data.pendingPlayers || [];
+                gameSettings = event.data.settings || gameSettings;
+                gameStartConfirmed = !pendingGameStartConfirmations.some((player) => player.id === playerID);
+                if (gameStartCountdownActive) stopGameStartCountdown();
                 renderGameStarting();
-                gameError.textContent = event.data.message;
+            } else if (event.type === "game_settings_updated") {
+                gameSettings = event.data.settings || defaultGameSettings(gameStartPlayers.length);
+                pendingGameStartConfirmations = event.data.pendingPlayers || [];
+                gameStartConfirmed = false;
+                if (gameStartCountdownActive) stopGameStartCountdown();
+                renderGameStarting();
+            } else if (event.type === "game_start_cancelled") {
+                resetToWaiting(event.data.message, event.data.settings);
             } else if (event.type === "game_updated") {
                 setGameState(event.data);
             } else if (event.type === "role_confirmations_updated") {
@@ -309,6 +699,10 @@
                 resetToWaiting(event.data.message);
             } else if (event.type === "error") {
                 gameError.textContent = event.data.message;
+                if (gameSettingsDialog.open) {
+                    gameSettingsError.textContent = event.data.message;
+                    gameSettingsError.hidden = false;
+                }
                 submittedProposalVote = false;
                 submittedQuestCard = false;
                 renderPhase();
@@ -324,6 +718,21 @@
         socket.addEventListener("error", () => socket.close());
     }
 
+    async function ensureTabToken() {
+        const storedToken = window.sessionStorage.getItem(tabTokenKey);
+        if (storedToken) return storedToken;
+
+        const response = await fetch(new URL(`api/lobbies/${encodeURIComponent(roomID)}/tab-session`, appBaseURL), {
+            method: "POST",
+            headers: {"Content-Type": "application/json"}
+        });
+        if (!response.ok) throw new Error("Could not create a session for this tab.");
+        const {token} = await response.json();
+        if (!token) throw new Error("Could not create a session for this tab.");
+        window.sessionStorage.setItem(tabTokenKey, token);
+        return token;
+    }
+
     function send(command) {
         gameError.textContent = "";
         if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(command));
@@ -335,6 +744,7 @@
         sidebar.setAttribute("aria-hidden", "false");
         sidebarToggle.setAttribute("aria-expanded", "true");
         captainSidebarToggle.setAttribute("aria-expanded", "true");
+        gameStartingSidebarToggle.setAttribute("aria-expanded", "true");
         sidebarBackdrop.hidden = false;
         document.body.classList.add("sidebar-open");
         sidebarClose.focus();
@@ -345,6 +755,7 @@
         sidebar.setAttribute("aria-hidden", "true");
         sidebarToggle.setAttribute("aria-expanded", "false");
         captainSidebarToggle.setAttribute("aria-expanded", "false");
+        gameStartingSidebarToggle.setAttribute("aria-expanded", "false");
         sidebarBackdrop.hidden = true;
         document.body.classList.remove("sidebar-open");
         if (returnFocus) sidebarReturnFocus.focus();
@@ -399,6 +810,7 @@
     function announceProposalResult(result, state = gameState, alreadyConfirmed = false) {
         window.clearTimeout(proposalResultRevealTimer);
         window.clearInterval(proposalResultCountdownTimer);
+        activeProposalResultKey = getProposalResultKey(result, state);
         proposalResultConfirmed = alreadyConfirmed;
         proposalResultAnnouncement.className = "proposal-result-announcement counting-down";
         proposalResultAnnouncement.setAttribute("role", "status");
@@ -476,6 +888,7 @@
     function dismissProposalResult(showRejectedToast = true) {
         window.clearInterval(proposalResultCountdownTimer);
         window.clearInterval(proposalResultRevealTimer);
+        activeProposalResultKey = "";
         proposalResultAnnouncement.hidden = true;
         if (deferredQuestResult) {
             const quest = deferredQuestResult;
@@ -484,6 +897,10 @@
         } else if (showRejectedToast) {
             showRejectedTeamToast();
         }
+    }
+
+    function getProposalResultKey(result, state) {
+        return `${state.round}:${state.rejectedProposals}:${result.approved}:${result.yes}:${result.no}`;
     }
 
     function announceQuestResult(quest) {
@@ -608,6 +1025,14 @@
         const readyMessage = byID("game-starting-ready-message");
         gameStartingView.hidden = !shouldShow;
         gameStartingView.classList.toggle("player-ready", gameStarting && gameStartConfirmed);
+        gameStartingSettings.hidden = !(isHost && gameStarting);
+        exitToLobbyButton.hidden = !(isHost && gameStarting);
+        const rolePlayerMismatch = roleCountTotal(gameSettings) !== connectedGameStartPlayerCount();
+        gameStartingReady.disabled = false;
+        gameStartingReady.setAttribute("aria-disabled", String(isHost && rolePlayerMismatch));
+        if (!rolePlayerMismatch) hideGameStartSettingsWarning();
+        else if (isHost && gameStarting) showGameStartSettingsWarning();
+        if (gameSettingsDialog.open) renderGameSettingsValidation();
         readyMessage.textContent = gameStartCountdownActive ? "Everyone has readied up, the game will start shortly." : "Ready up to start";
         if (!shouldShow) return;
 
@@ -648,6 +1073,108 @@
             : "Everyone is ready. Dealing roles…";
     }
 
+    function openGameSettingsDialog() {
+        if (!isHost) return;
+        const settings = gameSettings || defaultGameSettings(connectedGameStartPlayerCount());
+        for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+            const input = gameSettingsForm.elements.namedItem(name);
+            input.value = String(settings[name] ?? 0);
+            input.max = String(name === "merlins" || name === "assassins" ? 1 : 99);
+        }
+        gameSettingsError.hidden = true;
+        renderGameSettingsValidation();
+        gameSettingsDialog.showModal();
+        if (mobileRoleCountControls.matches) {
+            gameSettingsForm.querySelector('.role-count-controls .role-count-step[data-direction="-1"]').focus();
+        } else {
+            gameSettingsForm.elements.namedItem("minions").focus();
+        }
+    }
+
+    function readGameSettingsForm() {
+        const settings = {};
+        for (const name of ["minions", "innocents", "merlins", "assassins"]) {
+            settings[name] = Number(gameSettingsForm.elements.namedItem(name).value);
+        }
+        return settings;
+    }
+
+    function validGameSettings(settings) {
+        const counts = Object.values(settings);
+        return counts.every((count) => Number.isInteger(count) && count >= 0)
+            && settings.merlins <= 1
+            && settings.assassins <= 1
+            && settings.minions + settings.assassins > 0
+            && settings.innocents + settings.merlins > 0;
+    }
+
+    function renderGameSettingsValidation() {
+        const settings = readGameSettingsForm();
+        const counts = Object.values(settings);
+        const total = counts.every(Number.isFinite) ? counts.reduce((sum, count) => sum + count, 0) : 0;
+        const valid = validGameSettings(settings);
+        const connectedPlayers = connectedGameStartPlayerCount();
+        gameSettingsTotal.textContent = `${total} role${total === 1 ? "" : "s"} configured for ${connectedPlayers} connected player${connectedPlayers === 1 ? "" : "s"}`;
+        gameSettingsTotal.classList.toggle("valid", valid);
+        gameSettingsTotal.classList.toggle("invalid", !valid);
+        const rolePlayerMismatch = total !== connectedPlayers;
+        gameSettingsLobbyWarning.textContent = rolePlayerMismatch
+            ? gameStartRoleWarning(total, connectedPlayers)
+            : "";
+        gameSettingsLobbyWarning.hidden = !rolePlayerMismatch;
+        saveGameSettings.disabled = !valid;
+        updateRoleCountStepButtons();
+        if (!valid) {
+            gameSettingsError.textContent = settings.merlins > 1 || settings.assassins > 1
+                ? "A game can have at most one Merlin and one Assassin."
+                : "Include at least one loyal player and one Minion of Mordred.";
+            gameSettingsError.hidden = false;
+        } else {
+            gameSettingsError.hidden = true;
+        }
+    }
+
+    function updateMobileRoleCountInputs() {
+        for (const input of gameSettingsForm.querySelectorAll('.role-count-controls input')) {
+            input.readOnly = mobileRoleCountControls.matches;
+            input.inputMode = mobileRoleCountControls.matches ? "none" : "numeric";
+        }
+    }
+
+    function roleCountTotal(settings) {
+        return [settings?.minions, settings?.innocents, settings?.merlins, settings?.assassins]
+            .reduce((total, count) => total + (Number(count) || 0), 0);
+    }
+
+    function connectedGameStartPlayerCount() {
+        return gameStarting
+            ? gameStartPlayers.filter((player) => participants.has(player.id)).length
+            : participants.size;
+    }
+
+    function gameStartRoleWarning(roles, players) {
+        return roles > players
+            ? `Game can’t start: ${roles} roles for ${players} players.`
+            : `Game can’t start: only ${roles} roles for ${players} players.`;
+    }
+
+    function updateRoleCountStepButtons() {
+        for (const controls of gameSettingsForm.querySelectorAll(".role-count-controls")) {
+            const input = controls.querySelector("input");
+            const value = Number(input.value);
+            const minimum = Number(input.min) || 0;
+            const maximum = Number(input.max) || gameStartPlayers.length;
+            controls.querySelector('[data-direction="-1"]').disabled = value <= minimum;
+            controls.querySelector('[data-direction="1"]').disabled = value >= maximum;
+        }
+    }
+
+    function defaultGameSettings(playerCount) {
+        return playerCount >= 2
+            ? {minions: 0, innocents: playerCount - 2, merlins: 1, assassins: 1}
+            : {minions: 0, innocents: playerCount, merlins: 0, assassins: 0};
+    }
+
     function showUnreadyGlow() {
         window.clearTimeout(unreadyGlowTimer);
         gameStartingView.classList.remove("player-unready");
@@ -656,6 +1183,21 @@
         unreadyGlowTimer = window.setTimeout(() => {
             gameStartingView.classList.remove("player-unready");
         }, 700);
+    }
+
+    function showGameStartSettingsWarning() {
+        const roles = roleCountTotal(gameSettings);
+        const players = connectedGameStartPlayerCount();
+        showUnreadyGlow();
+        gameStartingWarningToast.textContent = gameStartRoleWarning(roles, players);
+        gameStartingWarningToast.hidden = false;
+        window.clearTimeout(gameStartingWarningTimer);
+        gameStartingWarningTimer = window.setTimeout(hideGameStartSettingsWarning, 3500);
+    }
+
+    function hideGameStartSettingsWarning() {
+        window.clearTimeout(gameStartingWarningTimer);
+        gameStartingWarningToast.hidden = true;
     }
 
     function showPlayerUnreadied(id) {
@@ -703,9 +1245,19 @@
 
     function renderRole() {
         const isPlayer = gameState?.players?.some((player) => player.id === playerID);
-        const assignedRole = role || (isPlayer ? "Assigning…" : "Spectator");
+        const assignedRole = role ? formatRole(role) : (isPlayer ? "Assigning…" : "Spectator");
         roleElement.textContent = roleRevealed ? assignedRole : "Reveal Secret Role";
+        roleRevealHint.hidden = !roleRevealed;
         roleReveal.classList.toggle("revealed", roleRevealed);
+        roleReveal.classList.toggle("merlin", roleRevealed && role === "merlin");
+        roleReveal.classList.toggle("assassin", roleRevealed && role === "assassin");
+        const showAssassinAction = roleRevealed && role === "assassin" && gameState?.active && !gameState.assassination;
+        const showMerlinAction = roleRevealed && role === "merlin" && gameState?.active;
+        roleReveal.hidden = showAssassinAction || showMerlinAction;
+        assassinRoleAction.hidden = !showAssassinAction;
+        merlinRoleAction.hidden = !showMerlinAction;
+        if (!showAssassinAction) setAssassinActionRevealed(false);
+        if (!showMerlinAction) closeMerlinKnowledge();
     }
 
     function renderRoleConfirmation() {
@@ -715,11 +1267,17 @@
         document.body.classList.toggle("confirming-role", shouldShow);
         if (!shouldShow) return;
 
-        roleConfirmationTitle.textContent = role;
-        roleConfirmationHelp.textContent = role === "traitor"
-            ? "Stay hidden. You may succeed or fail a quest when selected."
-            : "Help three quests succeed. You can only play success cards.";
+        roleConfirmationTitle.textContent = formatRole(role);
+        roleConfirmationHelp.textContent = role === "assassin"
+            ? "Stay hidden. You may fail quests, and the Assassins share one chance to identify and assassinate Merlin."
+            : role === "merlin"
+                ? "Help three quests succeed. Minions of Mordred are marked for you in the player sidebar."
+                : role === "traitor"
+                    ? "Stay hidden. You may succeed or fail a quest when selected."
+                    : "Help three quests succeed. You can only play success cards.";
         roleConfirmation.classList.toggle("traitor", role === "traitor");
+        roleConfirmation.classList.toggle("merlin", role === "merlin");
+        roleConfirmation.classList.toggle("assassin", role === "assassin");
         if (wasHidden) roleConfirmation.focus();
     }
 
@@ -737,16 +1295,20 @@
         mainGameView.hidden = waiting;
         const list = byID("role-confirmation-players");
         list.replaceChildren();
-        for (const player of pendingRoleConfirmations) {
+        const pendingIDs = new Set(pendingRoleConfirmations.map((player) => player.id));
+        for (const player of gameState?.players || []) {
+            const isWaiting = pendingIDs.has(player.id);
             const item = document.createElement("li");
-            item.className = "quest-player-tile waiting";
+            item.className = `quest-player-tile ${isWaiting ? "waiting" : "confirmed"}`;
             const name = document.createElement("strong");
             name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
             const state = document.createElement("span");
-            state.textContent = "Reading role…";
+            state.textContent = isWaiting ? "Reading role…" : "Role confirmed";
             item.append(name, state);
             list.append(item);
         }
+        list.classList.remove("double-stacked");
+        if (list.scrollHeight > list.clientHeight) list.classList.add("double-stacked");
     }
 
     function renderLastResult() {
@@ -910,6 +1472,7 @@
 
     function renderProposal() {
         renderTeam(byID("proposed-team"), gameState.quest);
+        scheduleProposedTeamLayout();
         const canVote = Boolean(role);
         const controls = byID("proposal-controls");
         controls.hidden = !canVote || submittedProposalVote;
@@ -925,7 +1488,7 @@
         const selected = gameState.quest.some((player) => player.id === playerID);
         const controls = byID("quest-controls");
         controls.hidden = !selected || submittedQuestCard;
-        byID("fail-quest").hidden = role !== "traitor";
+        byID("fail-quest").hidden = role !== "traitor" && role !== "assassin";
         byID("quest-progress").textContent = submittedQuestCard
             ? `Card submitted. Waiting for the quest team (${gameState.questCardsPlayed}/${gameState.questCardsNeeded}).`
             : !selected
@@ -951,13 +1514,48 @@
             item.append(name, state);
             list.append(item);
         }
+        scheduleQuestTeamLayout();
+    }
+
+    function scheduleProposedTeamLayout() {
+        window.cancelAnimationFrame(proposedTeamLayoutFrame);
+        proposedTeamLayoutFrame = window.requestAnimationFrame(updateProposedTeamLayout);
+    }
+
+    function updateProposedTeamLayout() {
+        const list = byID("proposed-team");
+        if (list.hidden || list.offsetParent === null) return;
+        list.classList.remove("double-stacked");
+        if (list.scrollHeight > list.clientHeight) list.classList.add("double-stacked");
+    }
+
+    function scheduleQuestTeamLayout() {
+        window.cancelAnimationFrame(questTeamLayoutFrame);
+        questTeamLayoutFrame = window.requestAnimationFrame(updateQuestTeamLayout);
+    }
+
+    function updateQuestTeamLayout() {
+        const list = byID("quest-team");
+        if (list.hidden || list.offsetParent === null) return;
+        list.classList.remove("double-stacked");
+        if (list.scrollHeight > list.clientHeight) list.classList.add("double-stacked");
     }
 
     function renderTeam(list, team) {
         list.replaceChildren();
         for (const player of team) {
             const item = document.createElement("li");
-            item.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            const name = document.createElement("span");
+            name.className = "player-tile-name";
+            name.textContent = player.id === playerID ? `${player.name} (you)` : player.name;
+            item.append(name);
+            if (role === "merlin" && knownRoles[player.id] === "traitor") {
+                const marker = document.createElement("span");
+                marker.className = "player-tile-role";
+                marker.textContent = "Minion";
+                item.classList.add("known-minion");
+                item.append(marker);
+            }
             list.append(item);
         }
     }
@@ -1023,40 +1621,51 @@
     }
 
     function renderEndedGame() {
+        closeMerlinKnowledge();
         showOnly(endedView);
         const innocentsWon = gameState.winner === "innocent";
-        const playerWon = Boolean(role) && role === gameState.winner;
+        const playerWon = Boolean(role) && roleFaction(role) === gameState.winner;
         endedView.classList.toggle("winning", playerWon);
         endedView.classList.toggle("losing", Boolean(role) && !playerWon);
         endedView.classList.toggle("spectating", !role);
-        byID("winner-message").textContent = innocentsWon ? "Innocents win!" : "Traitor wins!";
+        byID("winner-message").textContent = innocentsWon ? "Servants of Aurther win!" : "Minions of Mordred win!";
         byID("personal-result").textContent = !role
             ? "You watched this game as a spectator."
             : playerWon ? "Your team won" : "Your team lost";
-        byID("victory-reason").textContent = innocentsWon
-            ? "The innocents completed three successful quests."
-            : "Three quests failed, giving the traitor the victory.";
-        byID("traitor-name").textContent = gameState.traitors.map((player) => player.name).join(", ");
+        byID("victory-reason").textContent = gameState.assassination?.correct
+            ? `${gameState.assassination.target.name} was Merlin, so the assassination gave the Minions of Mordred victory.`
+            : innocentsWon
+                ? "The Servants of Aurther completed three successful quests."
+                : "Three quests failed, giving the Minions of Mordred the victory.";
+        const traitors = gameState.traitors || [];
+        byID("traitor-summary-label").textContent = traitors.length === 1
+            ? "The Minion of Mordred was"
+            : "The Minions of Mordred were";
+        byID("traitor-name").textContent = traitors.map((player) => player.name).join(", ");
         renderQuestCards(byID("final-quest-cards"));
         byID("final-score").textContent = `${gameState.successfulQuests} successful quests · ${gameState.failedQuests} failed quests`;
         startForm.hidden = !isHost;
         if (isHost) endedView.append(startForm);
     }
 
-    function resetToWaiting(message) {
+    function resetToWaiting(message, settings = defaultGameSettings(connectedGameStartPlayerCount())) {
         window.clearInterval(gameStartCountdownTimer);
         gameStartCountdownActive = false;
         gameStarting = false;
         gameStartConfirmed = false;
         pendingGameStartConfirmations = [];
         gameStartPlayers = [];
+        gameSettings = settings || defaultGameSettings(connectedGameStartPlayerCount());
+        if (gameSettingsDialog.open) gameSettingsDialog.close();
         renderGameStarting();
         gameState = null;
         updateEndGameVisibility();
         updatePresencePanelLocation();
         if (endGameDialog.open) endGameDialog.close();
         role = "";
+        knownRoles = {};
         roleRevealed = false;
+        closeMerlinKnowledge();
         roleConfirmed = false;
         pendingRoleConfirmations = [];
         dismissQuestResult(true);
@@ -1074,6 +1683,51 @@
 
     function updateEndGameVisibility() {
         endGameButton.hidden = !(isHost && gameState?.phase && gameState.phase !== "complete");
+        exitToLobbyButton.hidden = !(isHost && gameStarting);
+        updateAssassinationVisibility();
+    }
+
+    function updateAssassinationVisibility() {
+        const attempt = gameState?.assassination;
+        assassinatePlayerButton.hidden = !(role === "assassin" && gameState?.active && !attempt);
+        assassinationStatus.hidden = !attempt;
+        if (!attempt) {
+            assassinationStatus.textContent = "";
+            return;
+        }
+        assassinationStatus.textContent = attempt.correct
+            ? `${attempt.assassin.name} assassinated ${attempt.target.name}, who was Merlin.`
+            : `${attempt.assassin.name} tried to assassinate ${attempt.target.name}. The guess was wrong, so the game continues.`;
+    }
+
+    function renderAssassinationOptions() {
+        assassinationOptions.replaceChildren();
+        confirmAssassination.disabled = true;
+        for (const player of gameState?.players || []) {
+            if (player.id === playerID) continue;
+            const label = document.createElement("label");
+            label.className = "player-option";
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = "assassination-target";
+            input.value = player.id;
+            const name = document.createElement("span");
+            name.textContent = player.name;
+            label.append(input, name);
+            assassinationOptions.append(label);
+        }
+    }
+
+    function roleFaction(assignedRole) {
+        return assignedRole === "assassin" || assignedRole === "traitor" ? "traitor" : "innocent";
+    }
+
+    function formatRole(assignedRole) {
+        const roleNames = {
+            traitor: "Minion",
+            innocent: "Loyal Servant",
+        };
+        return roleNames[assignedRole] || (assignedRole ? assignedRole.charAt(0).toUpperCase() + assignedRole.slice(1) : "");
     }
 
     function updatePresencePanelLocation() {
@@ -1112,6 +1766,7 @@
                 badge.textContent = "Host";
                 item.append(badge);
             }
+            appendVisibleRoleBadge(item, person.id);
             participantList.append(item);
         }
         for (const player of gameState?.players || []) {
@@ -1119,6 +1774,7 @@
             const item = document.createElement("li");
             item.className = "participant-offline";
             item.textContent = `${player.name} · disconnected`;
+            appendVisibleRoleBadge(item, player.id);
             participantList.append(item);
         }
         participantCount.textContent = String(participants.size);
@@ -1128,7 +1784,17 @@
         nextGameMessage.textContent = isHost ? "Start a new game when everyone is ready." : "Waiting for the host to start a new game.";
     }
 
-    if (storedDisplayName && window.localStorage.getItem(autoJoinKey) === "true") {
+    function appendVisibleRoleBadge(item, id) {
+        const revealedAssassin = gameState?.assassination?.assassin?.id === id;
+        const visibleRole = revealedAssassin ? "assassin" : knownRoles[id];
+        if (!visibleRole) return;
+        const badge = document.createElement("span");
+        badge.className = `role-badge ${visibleRole}`;
+        badge.textContent = formatRole(visibleRole);
+        item.append(badge);
+    }
+
+    if (storedDisplayName && window.sessionStorage.getItem(autoJoinKey) === "true") {
         chosenName = storedDisplayName;
         joinPanel.hidden = true;
         presencePanel.hidden = false;

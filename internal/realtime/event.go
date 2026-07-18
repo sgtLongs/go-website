@@ -15,19 +15,21 @@ type Participant struct {
 }
 
 type presenceSnapshot struct {
-	Participants                  []Participant  `json:"participants"`
-	Game                          *game.Snapshot `json:"game,omitempty"`
-	Role                          string         `json:"role,omitempty"`
-	PendingRoleConfirmations      []game.Player  `json:"pendingRoleConfirmations,omitempty"`
-	PendingProposalConfirmations  []game.Player  `json:"pendingProposalConfirmations,omitempty"`
-	PendingGameStartConfirmations []game.Player  `json:"pendingGameStartConfirmations,omitempty"`
-	GameStartPlayers              []game.Player  `json:"gameStartPlayers,omitempty"`
-	GameStarting                  bool           `json:"gameStarting,omitempty"`
-	GameStartConfirmed            bool           `json:"gameStartConfirmed,omitempty"`
-	RoleConfirmed                 bool           `json:"roleConfirmed,omitempty"`
-	ProposalVoteSubmitted         bool           `json:"proposalVoteSubmitted,omitempty"`
-	QuestCardSubmitted            bool           `json:"questCardSubmitted,omitempty"`
-	ProposalResultConfirmed       bool           `json:"proposalResultConfirmed,omitempty"`
-	Host                          bool           `json:"host"`
-	PlayerID                      string         `json:"playerId"`
+	Participants                  []Participant        `json:"participants"`
+	Game                          *game.Snapshot       `json:"game,omitempty"`
+	Role                          string               `json:"role,omitempty"`
+	KnownRoles                    map[string]game.Role `json:"knownRoles,omitempty"`
+	PendingRoleConfirmations      []game.Player        `json:"pendingRoleConfirmations,omitempty"`
+	PendingProposalConfirmations  []game.Player        `json:"pendingProposalConfirmations,omitempty"`
+	PendingGameStartConfirmations []game.Player        `json:"pendingGameStartConfirmations,omitempty"`
+	GameStartPlayers              []game.Player        `json:"gameStartPlayers,omitempty"`
+	GameStarting                  bool                 `json:"gameStarting,omitempty"`
+	GameStartConfirmed            bool                 `json:"gameStartConfirmed,omitempty"`
+	GameSettings                  *game.Settings       `json:"gameSettings,omitempty"`
+	RoleConfirmed                 bool                 `json:"roleConfirmed,omitempty"`
+	ProposalVoteSubmitted         bool                 `json:"proposalVoteSubmitted,omitempty"`
+	QuestCardSubmitted            bool                 `json:"questCardSubmitted,omitempty"`
+	ProposalResultConfirmed       bool                 `json:"proposalResultConfirmed,omitempty"`
+	Host                          bool                 `json:"host"`
+	PlayerID                      string               `json:"playerId"`
 }

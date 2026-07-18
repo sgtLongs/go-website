@@ -1,0 +1,28 @@
+(app_routes) {
+	@beta_root path /beta
+	redir @beta_root /beta/ 308
+
+	handle /beta/* {
+		reverse_proxy beta:8080 {
+			# Let beta WebSockets survive a production-only config reload.
+			stream_close_delay 5m
+		}
+	}
+
+	handle {
+		reverse_proxy production:8080 {
+			# Let production WebSockets survive a beta-only config reload.
+			stream_close_delay 5m
+		}
+	}
+}
+
+# The public hostname gets automatic HTTPS. Keep explicit HTTP-only listeners
+# for deployment smoke checks and access from the local network.
+{$SITE_DOMAIN:localhost} {
+	import app_routes
+}
+
+http://127.0.0.1, http://192.168.68.60 {
+	import app_routes
+}

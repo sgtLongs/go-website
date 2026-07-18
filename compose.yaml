@@ -1,3 +1,5 @@
+name: go-website-local
+
 services:
   app:
     build:
@@ -7,11 +9,13 @@ services:
       - "${PORT:-8080}:8080"
     environment:
       ADDRESS: ":8080"
+      BASE_PATH: "${BASE_PATH:-}"
       DATA_PATH: "/app/data/game.db"
       GIN_MODE: "release"
     volumes:
-      - game-data:/app/data
+      - local-game-data:/app/data
     restart: unless-stopped
 
 volumes:
-  game-data:
+  local-game-data:
+    name: go-website_local-game-data
