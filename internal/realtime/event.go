@@ -25,6 +25,7 @@ type presenceSnapshot struct {
 	GameStartPlayers              []game.Player        `json:"gameStartPlayers,omitempty"`
 	GameStarting                  bool                 `json:"gameStarting,omitempty"`
 	GameStartConfirmed            bool                 `json:"gameStartConfirmed,omitempty"`
+	GameSettings                  *game.Settings       `json:"gameSettings,omitempty"`
 	RoleConfirmed                 bool                 `json:"roleConfirmed,omitempty"`
 	ProposalVoteSubmitted         bool                 `json:"proposalVoteSubmitted,omitempty"`
 	QuestCardSubmitted            bool                 `json:"questCardSubmitted,omitempty"`

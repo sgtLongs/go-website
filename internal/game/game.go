@@ -19,6 +19,7 @@ const (
 var (
 	ErrAlreadyActive      = errors.New("a game is already running")
 	ErrNotEnoughPlayers   = errors.New("at least three players are needed")
+	ErrInvalidSettings    = errors.New("role counts must match the player count and include both factions")
 	ErrNotActive          = errors.New("no game is running")
 	ErrWrongPhase         = errors.New("that action is not allowed right now")
 	ErrNotCaptain         = errors.New("only the captain can choose the quest team")
@@ -41,6 +42,50 @@ const (
 	Merlin   Role = "merlin"
 	Assassin Role = "assassin"
 )
+
+// Settings controls how many players receive each role. Minions and
+// Assassins belong to the traitor faction; Innocents and Merlins belong to the
+// innocent faction.
+type Settings struct {
+	Minions   int `json:"minions"`
+	Innocents int `json:"innocents"`
+	Merlins   int `json:"merlins"`
+	Assassins int `json:"assassins"`
+}
+
+func (settings Settings) Total() int {
+	return settings.Minions + settings.Innocents + settings.Merlins + settings.Assassins
+}
+
+func DefaultSettings(playerCount int) Settings {
+	if playerCount < 2 {
+		return Settings{Innocents: playerCount}
+	}
+	return Settings{Innocents: playerCount - 2, Merlins: 1, Assassins: 1}
+}
+
+func (settings Settings) Validate(playerCount int) error {
+	if err := settings.ValidateComposition(); err != nil {
+		return err
+	}
+	if settings.Total() != playerCount {
+		return ErrInvalidSettings
+	}
+	return nil
+}
+
+func (settings Settings) ValidateComposition() error {
+	if settings.Minions < 0 || settings.Innocents < 0 || settings.Merlins < 0 || settings.Assassins < 0 {
+		return ErrInvalidSettings
+	}
+	if settings.Merlins > 1 || settings.Assassins > 1 {
+		return ErrInvalidSettings
+	}
+	if settings.Minions+settings.Assassins == 0 || settings.Innocents+settings.Merlins == 0 {
+		return ErrInvalidSettings
+	}
+	return nil
+}
 
 type Phase string
 
@@ -134,6 +179,7 @@ type PersistedState struct {
 	Winner        Role                 `json:"winner,omitempty"`
 	Traitors      []Player             `json:"traitors,omitempty"`
 	Assassination *AssassinationResult `json:"assassination,omitempty"`
+	Settings      Settings             `json:"settings"`
 }
 
 type Engine struct {
@@ -157,6 +203,7 @@ type Engine struct {
 	winner        Role
 	traitors      []Player
 	assassination *AssassinationResult
+	settings      Settings
 	choose        func(int) (int, error)
 }
 
@@ -175,33 +222,23 @@ func newWithChooser(choose func(int) (int, error)) *Engine {
 }
 
 func (g *Engine) Start(players []Player) (Started, error) {
+	return g.StartWithSettings(players, DefaultSettings(len(players)))
+}
+
+func (g *Engine) StartWithSettings(players []Player, settings Settings) (Started, error) {
 	if g.active {
 		return Started{}, ErrAlreadyActive
 	}
 	if len(players) < MinPlayers {
 		return Started{}, ErrNotEnoughPlayers
 	}
+	if err := settings.Validate(len(players)); err != nil {
+		return Started{}, err
+	}
 	for round := 1; round <= TotalRounds; round++ {
 		if _, exists := QuestSizeFor(len(players), round); !exists {
 			return Started{}, ErrMissingQuestRule
 		}
-	}
-
-	traitorIndex, err := g.randomIndex(len(players))
-	if err != nil {
-		return Started{}, err
-	}
-	merlinChoice, err := g.randomIndex(len(players) - 1)
-	if err != nil {
-		return Started{}, err
-	}
-	merlinIndex := merlinChoice
-	if merlinIndex >= traitorIndex {
-		merlinIndex++
-	}
-	captainIndex, err := g.randomIndex(len(players))
-	if err != nil {
-		return Started{}, err
 	}
 
 	roles := make(map[string]Role, len(players))
@@ -210,10 +247,37 @@ func (g *Engine) Start(players []Player) (Started, error) {
 		roles[player.ID] = Innocent
 		playerByID[player.ID] = player
 	}
-	traitor := players[traitorIndex]
-	merlin := players[merlinIndex]
-	roles[traitor.ID] = Assassin
-	roles[merlin.ID] = Merlin
+	remaining := append([]Player(nil), players...)
+	assign := func(role Role, count int) error {
+		for range count {
+			index, err := g.randomIndex(len(remaining))
+			if err != nil {
+				return err
+			}
+			roles[remaining[index].ID] = role
+			remaining = append(remaining[:index], remaining[index+1:]...)
+		}
+		return nil
+	}
+	if err := assign(Assassin, settings.Assassins); err != nil {
+		return Started{}, err
+	}
+	if err := assign(Traitor, settings.Minions); err != nil {
+		return Started{}, err
+	}
+	if err := assign(Merlin, settings.Merlins); err != nil {
+		return Started{}, err
+	}
+	captainIndex, err := g.randomIndex(len(players))
+	if err != nil {
+		return Started{}, err
+	}
+	traitors := make([]Player, 0, settings.Minions+settings.Assassins)
+	for _, player := range players {
+		if isTraitor(roles[player.ID]) {
+			traitors = append(traitors, player)
+		}
+	}
 
 	g.generation++
 	g.active = true
@@ -233,8 +297,9 @@ func (g *Engine) Start(players []Player) (Started, error) {
 	g.lastQuest = nil
 	g.questResults = nil
 	g.winner = ""
-	g.traitors = []Player{traitor}
+	g.traitors = traitors
 	g.assassination = nil
+	g.settings = settings
 
 	return Started{Generation: g.generation, Roles: copyRoles(roles), State: g.Snapshot()}, nil
 }
@@ -443,7 +508,7 @@ func (g *Engine) Export() PersistedState {
 		QuestCards: copyChoices(g.questCards), Successful: g.successful, Failed: g.failed,
 		LastProposal: copyProposal(g.lastProposal), LastQuest: copyQuest(g.lastQuest),
 		QuestResults: append([]QuestResult(nil), g.questResults...), Winner: g.winner,
-		Traitors: append([]Player(nil), g.traitors...), Assassination: copyAssassination(g.assassination),
+		Traitors: append([]Player(nil), g.traitors...), Assassination: copyAssassination(g.assassination), Settings: g.settings,
 	}
 }
 
@@ -475,6 +540,7 @@ func (g *Engine) Restore(state PersistedState) error {
 	g.winner = state.Winner
 	g.traitors = append([]Player(nil), state.Traitors...)
 	g.assassination = copyAssassination(state.Assassination)
+	g.settings = state.Settings
 	return nil
 }
 
@@ -482,12 +548,16 @@ func (g *Engine) Restore(state PersistedState) error {
 // introduced. It preserves factions and deterministically promotes the first
 // innocent so an in-progress room can still be restored safely.
 func normalizeLegacyRoles(state PersistedState) PersistedState {
+	legacySettings := len(state.Players) > 0 && state.Settings == (Settings{})
+	if legacySettings {
+		state.Settings = DefaultSettings(len(state.Players))
+	}
 	hasMerlin, hasAssassin := false, false
 	for _, role := range state.Roles {
 		hasMerlin = hasMerlin || role == Merlin
 		hasAssassin = hasAssassin || role == Assassin
 	}
-	if len(state.Players) == 0 || hasMerlin || hasAssassin {
+	if len(state.Players) == 0 || hasMerlin || hasAssassin || !legacySettings {
 		return state
 	}
 
@@ -656,6 +726,8 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 		return nil, errors.New("persisted game has an invalid score")
 	}
 	traitorCount := 0
+	minionCount := 0
+	innocentCount := 0
 	merlinCount := 0
 	assassinCount := 0
 	for id, role := range state.Roles {
@@ -664,6 +736,12 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 		}
 		if isTraitor(role) {
 			traitorCount++
+		}
+		if role == Traitor {
+			minionCount++
+		}
+		if role == Innocent {
+			innocentCount++
 		}
 		if role == Merlin {
 			merlinCount++
@@ -675,8 +753,13 @@ func validatePersistedState(state PersistedState) (map[string]Player, error) {
 	if len(state.Roles) != len(players) {
 		return nil, errors.New("persisted game is missing role assignments")
 	}
-	if traitorCount != 1 || len(state.Traitors) != 1 || merlinCount != 1 || assassinCount != 1 {
-		return nil, errors.New("persisted game has an invalid traitor count")
+	if err := state.Settings.Validate(len(players)); err != nil {
+		return nil, errors.New("persisted game has invalid role settings")
+	}
+	if minionCount != state.Settings.Minions || innocentCount != state.Settings.Innocents ||
+		merlinCount != state.Settings.Merlins || assassinCount != state.Settings.Assassins ||
+		traitorCount != len(state.Traitors) {
+		return nil, errors.New("persisted game role assignments do not match its settings")
 	}
 	if state.Active {
 		if state.Phase != ChoosingTeam && state.Phase != VotingOnTeam && state.Phase != PlayingQuest {
