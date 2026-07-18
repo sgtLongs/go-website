@@ -92,7 +92,7 @@ func TestDisconnectKeepsActiveGameOpen(t *testing.T) {
 		_ = receiveEvent(t, client)
 		_ = receiveEvent(t, client)
 	}
-	if !room.disconnect(clients[1], true) {
+	if !room.disconnect(clients[1], false) {
 		t.Fatal("connected player was not disconnected")
 	}
 	if !room.game.Active() || !room.game.HasPlayer(clients[1].participant.ID) {
@@ -100,6 +100,37 @@ func TestDisconnectKeepsActiveGameOpen(t *testing.T) {
 	}
 	if room.count.Load() != 2 {
 		t.Fatalf("connected count = %d, want 2", room.count.Load())
+	}
+	disconnected, retained := room.participants[clients[1].participant.ID]
+	if !retained || disconnected.Connected {
+		t.Fatalf("disconnected participant = %#v, retained = %v; want retained and offline", disconnected, retained)
+	}
+	for _, recipient := range []*Client{clients[0], clients[2]} {
+		if event := receiveEvent(t, recipient); event.Type != "user_disconnected" {
+			t.Fatalf("event = %q, want user_disconnected", event.Type)
+		}
+	}
+}
+
+func TestExplicitLeaveRemovesParticipantFromRoster(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	for _, client := range []*Client{host, guest} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	room.handleCommand(roomCommand{client: guest, kind: "leave_room"})
+
+	if _, retained := room.participants[guest.participant.ID]; retained {
+		t.Fatal("explicitly departed player was retained in the roster")
+	}
+	if event := receiveEvent(t, host); event.Type != "user_left" {
+		t.Fatalf("event = %q, want user_left", event.Type)
 	}
 }
 

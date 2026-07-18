@@ -39,6 +39,7 @@ func (s *Service) ParticipantCount(roomID string) int {
 // connection closes. HTTP-specific validation stays in the controller.
 func (s *Service) HandleConnection(roomID string, participant Participant, connection *websocket.Conn) {
 	room := s.manager.Room(roomID)
+	participant.Connected = true
 	client := &Client{
 		participant: participant,
 		room:        room,

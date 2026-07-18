@@ -96,6 +96,8 @@
     let reconnectAttempts = 0;
     let chosenName = "";
     let intentionallyClosed = false;
+    let leavingRoom = false;
+    let leaveFallbackTimer;
     let sidebarReturnFocus = sidebarToggle;
     let isHost = false;
     let playerID = "";
@@ -275,8 +277,16 @@
     cancelLeaveRoom.addEventListener("click", () => leaveRoomDialog.close());
     confirmLeaveRoom.addEventListener("click", () => {
         intentionallyClosed = true;
-        socket?.close();
-        window.location.assign(appBaseURL.href);
+        leavingRoom = true;
+        window.clearTimeout(reconnectTimer);
+        leaveRoomDialog.close();
+        if (socket?.readyState !== WebSocket.OPEN) {
+            window.location.assign(appBaseURL.href);
+            return;
+        }
+        setStatus("Leaving…", false);
+        socket.send(JSON.stringify({type: "leave_room"}));
+        leaveFallbackTimer = window.setTimeout(() => window.location.assign(appBaseURL.href), 1000);
     });
     leaveRoomDialog.addEventListener("click", (event) => {
         if (event.target === leaveRoomDialog) leaveRoomDialog.close();
@@ -628,6 +638,9 @@
             } else if (event.type === "user_joined") {
                 participants.set(event.data.id, event.data);
                 if (gameStarting) renderGameStarting();
+            } else if (event.type === "user_disconnected") {
+                participants.set(event.data.id, event.data);
+                if (gameStarting) renderGameStarting();
             } else if (event.type === "user_left") {
                 participants.delete(event.data.id);
                 if (gameStarting) renderGameStarting();
@@ -713,8 +726,11 @@
         });
 
         socket.addEventListener("close", () => {
-            participants.clear();
-            renderParticipants();
+            if (leavingRoom) {
+                window.clearTimeout(leaveFallbackTimer);
+                window.location.assign(appBaseURL.href);
+                return;
+            }
             if (!intentionallyClosed) scheduleReconnect();
         });
         socket.addEventListener("error", () => socket.close());
@@ -1152,8 +1168,8 @@
 
     function connectedGameStartPlayerCount() {
         return gameStarting
-            ? gameStartPlayers.filter((player) => participants.has(player.id)).length
-            : participants.size;
+            ? gameStartPlayers.filter((player) => participants.get(player.id)?.connected !== false).length
+            : [...participants.values()].filter((player) => player.connected !== false).length;
     }
 
     function gameStartRoleWarning(roles, players) {
@@ -1764,7 +1780,9 @@
         participantList.replaceChildren();
         for (const person of participants.values()) {
             const item = document.createElement("li");
-            item.textContent = person.name;
+            const disconnected = person.connected === false;
+            item.classList.toggle("participant-offline", disconnected);
+            item.textContent = disconnected ? `${person.name} · disconnected` : person.name;
             if (person.host) {
                 const badge = document.createElement("span");
                 badge.className = "host-badge";

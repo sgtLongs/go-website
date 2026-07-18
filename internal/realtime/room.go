@@ -46,6 +46,7 @@ type Room struct {
 	id                     string
 	clients                map[*Client]struct{}
 	connections            map[string]*Client
+	participants           map[string]Participant
 	register               chan *Client
 	unregister             chan *Client
 	commands               chan roomCommand
@@ -75,6 +76,7 @@ func newRoomWithStore(id string, onEmpty func(*Room), store *persistence.Store) 
 		id:                     id,
 		clients:                make(map[*Client]struct{}),
 		connections:            make(map[string]*Client),
+		participants:           make(map[string]Participant),
 		register:               make(chan *Client),
 		unregister:             make(chan *Client),
 		commands:               make(chan roomCommand, 16),
@@ -135,6 +137,7 @@ func (r *Room) run() {
 		select {
 		case client := <-r.register:
 			stopEmptyTimer()
+			client.participant.Connected = true
 			if previous := r.connections[client.participant.ID]; previous != nil && previous != client {
 				delete(r.clients, previous)
 				close(previous.send)
@@ -143,6 +146,7 @@ func (r *Room) run() {
 			}
 			r.clients[client] = struct{}{}
 			r.connections[client.participant.ID] = client
+			r.participants[client.participant.ID] = client.participant
 			rosterChanged := false
 			if r.gameStarting && !r.gameStartHasPlayer(client.participant.ID) {
 				r.gameStartPlayers = append(r.gameStartPlayers, game.Player{ID: client.participant.ID, Name: client.participant.Name})
@@ -162,7 +166,7 @@ func (r *Room) run() {
 			}
 
 		case client := <-r.unregister:
-			if !r.disconnect(client, true) {
+			if !r.disconnect(client, false) {
 				continue
 			}
 			if len(r.clients) == 0 {
@@ -184,7 +188,9 @@ func (r *Room) run() {
 	}
 }
 
-func (r *Room) disconnect(client *Client, announce bool) bool {
+// disconnect removes a live socket. An explicit departure removes the roster
+// entry; an unexpected socket loss retains it and marks the player offline.
+func (r *Room) disconnect(client *Client, departed bool) bool {
 	if r.connections[client.participant.ID] != client {
 		return false
 	}
@@ -192,8 +198,14 @@ func (r *Room) disconnect(client *Client, announce bool) bool {
 	delete(r.clients, client)
 	r.count.Add(-1)
 	close(client.send)
-	if announce {
+	if departed {
+		delete(r.participants, client.participant.ID)
 		r.broadcastEvent("user_left", client.participant)
+	} else {
+		participant := client.participant
+		participant.Connected = false
+		r.participants[participant.ID] = participant
+		r.broadcastEvent("user_disconnected", participant)
 	}
 	if r.gameStarting && r.gameStartHasPlayer(client.participant.ID) {
 		for index, player := range r.gameStartPlayers {
@@ -213,9 +225,9 @@ func (r *Room) disconnect(client *Client, announce bool) bool {
 }
 
 func (r *Room) sendSnapshot(client *Client) {
-	participants := make([]Participant, 0, len(r.clients))
-	for connected := range r.clients {
-		participants = append(participants, connected.participant)
+	participants := make([]Participant, 0, len(r.participants))
+	for _, participant := range r.participants {
+		participants = append(participants, participant)
 	}
 	sort.Slice(participants, func(i, j int) bool { return participants[i].ID < participants[j].ID })
 	snapshot := presenceSnapshot{
@@ -226,7 +238,7 @@ func (r *Room) sendSnapshot(client *Client) {
 	state := r.game.Snapshot()
 	settings := r.gameSettings
 	if settings == (game.Settings{}) {
-		settings = game.DefaultSettings(len(participants))
+		settings = game.DefaultSettings(len(r.clients))
 	}
 	snapshot.GameSettings = &settings
 	snapshot.GameStarting = r.gameStarting
@@ -263,6 +275,9 @@ func (r *Room) handleCommand(command roomCommand) {
 	before := r.state()
 	var err error
 	switch command.kind {
+	case "leave_room":
+		r.disconnect(command.client, true)
+		return
 	case "start_game":
 		err = r.prepareGame(command.client)
 		if err == nil && r.saveOrRestore(before, command.client) {
