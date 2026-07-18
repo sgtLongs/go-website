@@ -3,6 +3,7 @@ name: Test, publish, and deploy
 on:
   push:
     branches:
+      - main
       - beta
       - prod
 
@@ -36,7 +37,12 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test ./...
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_at=$SECONDS
+          go test ./...
+          echo "Tests completed in $((SECONDS - started_at))s."
 
       - name: Select deployment target
         id: target
@@ -48,6 +54,14 @@ jobs:
           echo "image=ghcr.io/${repository}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
           case "$GITHUB_REF_NAME" in
+            main)
+              echo "api_path=/dev/api/lobbies" >> "$GITHUB_OUTPUT"
+              echo "asset_path=/dev/assets/css/lobbies.css" >> "$GITHUB_OUTPUT"
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              echo "service=dev" >> "$GITHUB_OUTPUT"
+              echo "health_path=/dev/health" >> "$GITHUB_OUTPUT"
+              echo "page_path=/dev/" >> "$GITHUB_OUTPUT"
+              ;;
             beta)
               echo "api_path=/beta/api/lobbies" >> "$GITHUB_OUTPUT"
               echo "asset_path=/beta/assets/css/lobbies.css" >> "$GITHUB_OUTPUT"
@@ -73,6 +87,7 @@ jobs:
       - name: Validate deployment configuration
         env:
           BETA_IMAGE: ${{ steps.target.outputs.image }}
+          DEV_IMAGE: ${{ steps.target.outputs.image }}
           PRODUCTION_IMAGE: ${{ steps.target.outputs.image }}
         run: docker compose --file deploy/compose.yaml config --quiet
 
@@ -93,6 +108,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Start image publish timer
+        shell: bash
+        run: echo "IMAGE_PUBLISH_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
       - name: Build and publish immutable image
         uses: docker/build-push-action@v7
         with:
@@ -106,6 +125,15 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
+
+      - name: Report image publish duration
+        shell: bash
+        run: |
+          set -euo pipefail
+          elapsed=$(( $(date +%s) - IMAGE_PUBLISH_STARTED_AT ))
+          echo "Image build and publish completed in ${elapsed}s."
+          echo "### Build timing" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image build and publish: ${elapsed}s" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy ${{ needs.build.outputs.environment }}
@@ -142,7 +170,7 @@ jobs:
         run: |
           set -Eeuo pipefail
 
-          # Keep production and beta changes from overlapping even if more
+          # Keep environment changes from overlapping even if more
           # than one matching self-hosted runner is registered.
           exec 9>/tmp/go-website-deploy.lock
           if ! flock --wait 600 9; then
@@ -153,6 +181,10 @@ jobs:
           compose=(docker compose --project-name go-website --file deploy/compose.yaml)
 
           case "$SERVICE" in
+            dev)
+              export DEV_IMAGE="$DEPLOY_IMAGE"
+              image_variable=DEV_IMAGE
+              ;;
             beta)
               export BETA_IMAGE="$DEPLOY_IMAGE"
               image_variable=BETA_IMAGE

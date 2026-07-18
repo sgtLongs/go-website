@@ -10,6 +10,15 @@
 </head>
 <body>
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+    <dialog id="host-received-dialog" class="end-game-dialog host-received-dialog" aria-labelledby="host-received-title" aria-describedby="host-received-description">
+        <p class="eyebrow">Room host</p>
+        <h2 id="host-received-title">You are the new host</h2>
+        <p id="host-received-description">The previous host left, so the room controls have been passed to you.</p>
+        <div class="dialog-actions">
+            <button id="acknowledge-host" type="button">Got it</button>
+        </div>
+    </dialog>
+    <p id="host-transfer-toast" class="host-transfer-toast" role="status" aria-live="polite" hidden></p>
     <aside id="room-sidebar" class="room-sidebar" aria-label="Room menu" aria-hidden="true">
         <div class="sidebar-header">
             <h2>Room menu</h2>
@@ -56,48 +65,72 @@
     <dialog id="game-settings-dialog" class="end-game-dialog game-settings-dialog" aria-labelledby="game-settings-title" aria-describedby="game-settings-description">
         <p class="eyebrow">Host controls</p>
         <h2 id="game-settings-title">Game settings</h2>
-        <p id="game-settings-description">Choose the role mix for this game. The role total must match the number of players.</p>
+        <p id="game-settings-description">Customize the roles and rules for all five quests.</p>
         <form id="game-settings-form">
-            <div class="game-settings-fields">
-                <label class="innocent" for="game-settings-innocents">
-                    <span>Innocents</span>
-                    <small>Loyal servants with no special power</small>
-                    <span class="role-count-controls">
-                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Innocents">‹</button>
-                        <input id="game-settings-innocents" name="innocents" type="number" min="0" inputmode="numeric" required>
-                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Innocents">›</button>
-                    </span>
-                </label>
-                <label class="minion" for="game-settings-minions">
-                    <span>Minions</span>
-                    <small>Evil players who can fail quests</small>
-                    <span class="role-count-controls">
-                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Minions">‹</button>
-                        <input id="game-settings-minions" name="minions" type="number" min="0" inputmode="numeric" required>
-                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Minions">›</button>
-                    </span>
-                </label>
-                <label class="merlin" for="game-settings-merlins">
-                    <span>Merlins</span>
-                    <small>Loyal servants who know the Minions</small>
-                    <span class="role-count-controls">
-                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Merlins">‹</button>
-                        <input id="game-settings-merlins" name="merlins" type="number" min="0" max="1" inputmode="numeric" required>
-                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Merlins">›</button>
-                    </span>
-                </label>
-                <label class="assassin" for="game-settings-assassins">
-                    <span>Assassins</span>
-                    <small>Minions who share one assassination attempt</small>
-                    <span class="role-count-controls">
-                        <button class="role-count-step" type="button" data-direction="-1" aria-label="Decrease Assassins">‹</button>
-                        <input id="game-settings-assassins" name="assassins" type="number" min="0" max="1" inputmode="numeric" required>
-                        <button class="role-count-step" type="button" data-direction="1" aria-label="Increase Assassins">›</button>
-                    </span>
-                </label>
+            <div class="game-settings-tabs" role="tablist" aria-label="Game settings sections">
+                <button id="game-settings-roles-tab" class="game-settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="game-settings-roles-panel">Roles</button>
+                <button id="game-settings-quests-tab" class="game-settings-tab" type="button" role="tab" aria-selected="false" aria-controls="game-settings-quests-panel" tabindex="-1">Quests</button>
             </div>
-            <p id="game-settings-total" class="game-settings-total" aria-live="polite"></p>
-            <p id="game-settings-lobby-warning" class="game-settings-lobby-warning" role="alert" hidden></p>
+            <label class="recommended-settings-toggle" for="game-settings-recommended">
+                <input id="game-settings-recommended" name="recommendedSettings" type="checkbox">
+                <span>Recommended settings</span>
+            </label>
+            <div id="game-settings-roles-panel" class="game-settings-panel" role="tabpanel" aria-labelledby="game-settings-roles-tab">
+                <p class="game-settings-panel-help">Choose the role mix. The role total must match the number of players before the game can start.</p>
+                <div class="game-settings-fields">
+                    <label class="innocent" for="game-settings-innocents">
+                        <span>Servants</span>
+                        <small>Loyal servants with no special power</small>
+                        <span class="settings-count-controls role-count-controls">
+                            <button class="settings-count-step role-count-step" type="button" data-direction="-1" aria-label="Decrease Servants">‹</button>
+                            <input id="game-settings-innocents" name="innocents" type="number" min="0" inputmode="numeric" required>
+                            <button class="settings-count-step role-count-step" type="button" data-direction="1" aria-label="Increase Servants">›</button>
+                        </span>
+                    </label>
+                    <label class="minion" for="game-settings-minions">
+                        <span>Minions</span>
+                        <small>Evil players who can fail quests</small>
+                        <span class="settings-count-controls role-count-controls">
+                            <button class="settings-count-step role-count-step" type="button" data-direction="-1" aria-label="Decrease Minions">‹</button>
+                            <input id="game-settings-minions" name="minions" type="number" min="0" inputmode="numeric" required>
+                            <button class="settings-count-step role-count-step" type="button" data-direction="1" aria-label="Increase Minions">›</button>
+                        </span>
+                    </label>
+                    <label class="merlin" for="game-settings-merlins">
+                        <span>Merlins</span>
+                        <small>Loyal servants who know the Minions</small>
+                        <span class="settings-count-controls role-count-controls">
+                            <button class="settings-count-step role-count-step" type="button" data-direction="-1" aria-label="Decrease Merlins">‹</button>
+                            <input id="game-settings-merlins" name="merlins" type="number" min="0" max="1" inputmode="numeric" required>
+                            <button class="settings-count-step role-count-step" type="button" data-direction="1" aria-label="Increase Merlins">›</button>
+                        </span>
+                    </label>
+                    <label class="assassin" for="game-settings-assassins">
+                        <span>Assassins</span>
+                        <small>Minions who share one assassination attempt</small>
+                        <span class="settings-count-controls role-count-controls">
+                            <button class="settings-count-step role-count-step" type="button" data-direction="-1" aria-label="Decrease Assassins">‹</button>
+                            <input id="game-settings-assassins" name="assassins" type="number" min="0" max="1" inputmode="numeric" required>
+                            <button class="settings-count-step role-count-step" type="button" data-direction="1" aria-label="Increase Assassins">›</button>
+                        </span>
+                    </label>
+                </div>
+                <p id="game-settings-total" class="game-settings-total" aria-live="polite"></p>
+                <p id="game-settings-lobby-warning" class="game-settings-lobby-warning" role="alert" hidden></p>
+            </div>
+            <div id="game-settings-quests-panel" class="game-settings-panel" role="tabpanel" aria-labelledby="game-settings-quests-tab" hidden>
+                <p class="game-settings-panel-help">Set the team size and failures needed to fail each quest. Failures default to 1.</p>
+                <div class="quest-settings-heading" aria-hidden="true">
+                    <span>Quest</span><span>Players</span><span>Fails needed</span>
+                </div>
+                <div class="quest-settings-fields">
+                    <div class="quest-settings-row"><strong>Quest 1</strong><label for="game-settings-quest-size-1"><span>Players</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 1 players">‹</button><input id="game-settings-quest-size-1" name="quest-size-1" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 1 players">›</button></span></label><label for="game-settings-quest-fails-1"><span>Failures</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 1 failures">‹</button><input id="game-settings-quest-fails-1" name="quest-fails-1" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 1 failures">›</button></span></label></div>
+                    <div class="quest-settings-row"><strong>Quest 2</strong><label for="game-settings-quest-size-2"><span>Players</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 2 players">‹</button><input id="game-settings-quest-size-2" name="quest-size-2" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 2 players">›</button></span></label><label for="game-settings-quest-fails-2"><span>Failures</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 2 failures">‹</button><input id="game-settings-quest-fails-2" name="quest-fails-2" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 2 failures">›</button></span></label></div>
+                    <div class="quest-settings-row"><strong>Quest 3</strong><label for="game-settings-quest-size-3"><span>Players</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 3 players">‹</button><input id="game-settings-quest-size-3" name="quest-size-3" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 3 players">›</button></span></label><label for="game-settings-quest-fails-3"><span>Failures</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 3 failures">‹</button><input id="game-settings-quest-fails-3" name="quest-fails-3" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 3 failures">›</button></span></label></div>
+                    <div class="quest-settings-row"><strong>Quest 4</strong><label for="game-settings-quest-size-4"><span>Players</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 4 players">‹</button><input id="game-settings-quest-size-4" name="quest-size-4" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 4 players">›</button></span></label><label for="game-settings-quest-fails-4"><span>Failures</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 4 failures">‹</button><input id="game-settings-quest-fails-4" name="quest-fails-4" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 4 failures">›</button></span></label></div>
+                    <div class="quest-settings-row"><strong>Quest 5</strong><label for="game-settings-quest-size-5"><span>Players</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 5 players">‹</button><input id="game-settings-quest-size-5" name="quest-size-5" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 5 players">›</button></span></label><label for="game-settings-quest-fails-5"><span>Failures</span><span class="settings-count-controls quest-count-controls"><button class="settings-count-step" type="button" data-direction="-1" aria-label="Decrease Quest 5 failures">‹</button><input id="game-settings-quest-fails-5" name="quest-fails-5" type="number" min="1" inputmode="numeric" required><button class="settings-count-step" type="button" data-direction="1" aria-label="Increase Quest 5 failures">›</button></span></label></div>
+                </div>
+            </div>
             <p id="game-settings-error" class="game-settings-error" role="alert" hidden></p>
             <div class="dialog-actions">
                 <button id="cancel-game-settings" class="secondary" type="button">Cancel</button>
@@ -165,6 +198,7 @@
             </form>
         </section>
 
+        <button id="waiting-sidebar-toggle" class="sidebar-toggle waiting-sidebar-toggle" type="button" aria-label="Open room menu" aria-controls="room-sidebar" aria-expanded="false" hidden><span aria-hidden="true"></span></button>
         <section id="game-panel" class="panel" hidden>
             <div id="waiting-view">
                 <h2>Ready to play?</h2>

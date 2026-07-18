@@ -69,14 +69,14 @@ func newRouterWithBasePath(basePath string, stores ...*persistence.Store) *gin.E
 	var presenceService *realtime.Service
 	if len(stores) == 0 {
 		lobbyService = lobby.NewService()
-		presenceService = realtime.NewService(lobbyService.Close)
+		presenceService = realtime.NewService(lobbyService.Close, lobbyService.TransferHost)
 	} else {
 		var err error
 		lobbyService, err = lobby.NewPersistentService(stores[0])
 		if err != nil {
 			panic(err)
 		}
-		presenceService, err = realtime.NewPersistentService(stores[0], lobbyService.Close)
+		presenceService, err = realtime.NewPersistentService(stores[0], lobbyService.Close, lobbyService.TransferHost)
 		if err != nil {
 			panic(err)
 		}

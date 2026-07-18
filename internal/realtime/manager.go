@@ -8,10 +8,11 @@ import (
 )
 
 type Manager struct {
-	mu      sync.Mutex
-	rooms   map[string]*Room
-	onEmpty func(string)
-	store   *persistence.Store
+	mu             sync.Mutex
+	rooms          map[string]*Room
+	onEmpty        func(string)
+	store          *persistence.Store
+	onHostTransfer func(string, string) error
 }
 
 func (m *Manager) ParticipantCount(id string) int {
@@ -24,12 +25,19 @@ func (m *Manager) ParticipantCount(id string) int {
 	return int(room.count.Load())
 }
 
-func NewManager(onEmpty func(string)) *Manager {
-	return &Manager{rooms: make(map[string]*Room), onEmpty: onEmpty}
+func NewManager(onEmpty func(string), onHostTransfer ...func(string, string) error) *Manager {
+	m := &Manager{rooms: make(map[string]*Room), onEmpty: onEmpty}
+	if len(onHostTransfer) > 0 {
+		m.onHostTransfer = onHostTransfer[0]
+	}
+	return m
 }
 
-func NewPersistentManager(store *persistence.Store, onEmpty func(string)) (*Manager, error) {
+func NewPersistentManager(store *persistence.Store, onEmpty func(string), onHostTransfer ...func(string, string) error) (*Manager, error) {
 	m := &Manager{rooms: make(map[string]*Room), onEmpty: onEmpty, store: store}
+	if len(onHostTransfer) > 0 {
+		m.onHostTransfer = onHostTransfer[0]
+	}
 	if err := store.ForEach(persistence.RoomsBucket, func(key, value []byte) error {
 		room, err := restoreRoom(value, m.closeRoom, store)
 		if err != nil {
@@ -39,6 +47,7 @@ func NewPersistentManager(store *persistence.Store, onEmpty func(string)) (*Mana
 			return fmt.Errorf("restore room %q: storage key does not match room ID", string(key))
 		}
 		m.rooms[room.id] = room
+		room.onHostTransfer = m.onHostTransfer
 		go room.run()
 		return nil
 	}); err != nil {
@@ -56,6 +65,7 @@ func (m *Manager) Room(id string) *Room {
 	}
 
 	room := newRoomWithStore(id, m.closeRoom, m.store)
+	room.onHostTransfer = m.onHostTransfer
 	m.rooms[id] = room
 	go room.run()
 	return room

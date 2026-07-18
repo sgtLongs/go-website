@@ -103,6 +103,36 @@ func TestTabGrantsHaveIndependentParticipantIdentities(t *testing.T) {
 	}
 }
 
+func TestTransferHostUpdatesLobbyGrants(t *testing.T) {
+	service := NewService()
+	lobby, hostToken, err := service.Create("Host transfer", "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostID, _, _, ok := service.ResolveParticipant(lobby.ID, hostToken, "Old Host")
+	if !ok {
+		t.Fatal("could not resolve original host")
+	}
+	guestToken, err := service.Join(lobby.ID, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guestID, _, _, ok := service.ResolveParticipant(lobby.ID, guestToken, "New Host")
+	if !ok {
+		t.Fatal("could not resolve guest")
+	}
+
+	if err := service.TransferHost(lobby.ID, guestID); err != nil {
+		t.Fatal(err)
+	}
+	if service.IsHost(lobby.ID, hostToken) {
+		t.Fatalf("original participant %q retained host access", hostID)
+	}
+	if !service.IsHost(lobby.ID, guestToken) {
+		t.Fatalf("new participant %q did not receive host access", guestID)
+	}
+}
+
 func TestListDoesNotExposePassword(t *testing.T) {
 	s := NewService()
 	l, _, err := s.Create("Visible name", "secret")

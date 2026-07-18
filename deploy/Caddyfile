@@ -1,17 +1,27 @@
 (app_routes) {
+	@dev_root path /dev
+	redir @dev_root /dev/ 308
+
+	handle /dev/* {
+		reverse_proxy dev:8080 {
+			# Let development WebSockets survive another environment's config reload.
+			stream_close_delay 5m
+		}
+	}
+
 	@beta_root path /beta
 	redir @beta_root /beta/ 308
 
 	handle /beta/* {
 		reverse_proxy beta:8080 {
-			# Let beta WebSockets survive a production-only config reload.
+			# Let beta WebSockets survive another environment's config reload.
 			stream_close_delay 5m
 		}
 	}
 
 	handle {
 		reverse_proxy production:8080 {
-			# Let production WebSockets survive a beta-only config reload.
+			# Let production WebSockets survive another environment's config reload.
 			stream_close_delay 5m
 		}
 	}

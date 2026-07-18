@@ -15,12 +15,12 @@ type Service struct {
 	manager *Manager
 }
 
-func NewService(onEmpty func(string)) *Service {
-	return &Service{manager: NewManager(onEmpty)}
+func NewService(onEmpty func(string), onHostTransfer ...func(string, string) error) *Service {
+	return &Service{manager: NewManager(onEmpty, onHostTransfer...)}
 }
 
-func NewPersistentService(store *persistence.Store, onEmpty func(string)) (*Service, error) {
-	manager, err := NewPersistentManager(store, onEmpty)
+func NewPersistentService(store *persistence.Store, onEmpty func(string), onHostTransfer ...func(string, string) error) (*Service, error) {
+	manager, err := NewPersistentManager(store, onEmpty, onHostTransfer...)
 	if err != nil {
 		return nil, err
 	}
@@ -39,6 +39,7 @@ func (s *Service) ParticipantCount(roomID string) int {
 // connection closes. HTTP-specific validation stays in the controller.
 func (s *Service) HandleConnection(roomID string, participant Participant, connection *websocket.Conn) {
 	room := s.manager.Room(roomID)
+	participant.Connected = true
 	client := &Client{
 		participant: participant,
 		room:        room,

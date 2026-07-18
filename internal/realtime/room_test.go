@@ -92,7 +92,7 @@ func TestDisconnectKeepsActiveGameOpen(t *testing.T) {
 		_ = receiveEvent(t, client)
 		_ = receiveEvent(t, client)
 	}
-	if !room.disconnect(clients[1], true) {
+	if !room.disconnect(clients[1], false) {
 		t.Fatal("connected player was not disconnected")
 	}
 	if !room.game.Active() || !room.game.HasPlayer(clients[1].participant.ID) {
@@ -100,6 +100,196 @@ func TestDisconnectKeepsActiveGameOpen(t *testing.T) {
 	}
 	if room.count.Load() != 2 {
 		t.Fatalf("connected count = %d, want 2", room.count.Load())
+	}
+	disconnected, retained := room.participants[clients[1].participant.ID]
+	if !retained || disconnected.Connected {
+		t.Fatalf("disconnected participant = %#v, retained = %v; want retained and offline", disconnected, retained)
+	}
+	for _, recipient := range []*Client{clients[0], clients[2]} {
+		if event := receiveEvent(t, recipient); event.Type != "user_disconnected" {
+			t.Fatalf("event = %q, want user_disconnected", event.Type)
+		}
+	}
+}
+
+func TestExplicitLeaveRemovesParticipantFromRoster(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	for _, client := range []*Client{host, guest} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	room.handleCommand(roomCommand{client: guest, kind: "leave_room"})
+
+	if _, retained := room.participants[guest.participant.ID]; retained {
+		t.Fatal("explicitly departed player was retained in the roster")
+	}
+	if event := receiveEvent(t, host); event.Type != "user_left" {
+		t.Fatalf("event = %q, want user_left", event.Type)
+	}
+}
+
+func TestRosterChangeRefreshesConfiguredQuestSettings(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "One", false),
+		testClient(room, "Two", false),
+		testClient(room, "Three", false),
+		testClient(room, "Four", false),
+		testClient(room, "Five", false),
+	}
+	for _, client := range clients {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+	room.gameSettings = game.Settings{
+		RecommendedSettings: true,
+		Minions:             2, Innocents: 2, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{6, 6, 6, 6, 6},
+		QuestFailThresholds: [game.TotalRounds]int{2, 2, 2, 2, 2},
+	}
+
+	if !room.disconnect(clients[5], true) {
+		t.Fatal("connected player was not removed")
+	}
+	wantSizes := [game.TotalRounds]int{2, 3, 2, 3, 3}
+	wantFailures := [game.TotalRounds]int{1, 1, 1, 1, 1}
+	if room.gameSettings.QuestSizes != wantSizes || room.gameSettings.QuestFailThresholds != wantFailures {
+		t.Fatalf("quest settings after leave = %v/%v, want %v/%v", room.gameSettings.QuestSizes, room.gameSettings.QuestFailThresholds, wantSizes, wantFailures)
+	}
+	wantRoles := game.Settings{Minions: 1, Innocents: 2, Merlins: 1, Assassins: 1}
+	if room.gameSettings.Minions != wantRoles.Minions || room.gameSettings.Innocents != wantRoles.Innocents ||
+		room.gameSettings.Merlins != wantRoles.Merlins || room.gameSettings.Assassins != wantRoles.Assassins {
+		t.Fatalf("role settings after leave = %#v, want recommended roles %#v", room.gameSettings, wantRoles)
+	}
+	event := receiveEvent(t, clients[0])
+	encoded, err := json.Marshal(event.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var update rosterUpdate
+	if err := json.Unmarshal(encoded, &update); err != nil {
+		t.Fatal(err)
+	}
+	if update.GameSettings.QuestSizes != wantSizes {
+		t.Fatalf("broadcast quest sizes = %v, want %v", update.GameSettings.QuestSizes, wantSizes)
+	}
+}
+
+func TestRosterChangePreservesSettingsWhenRecommendationsDisabled(t *testing.T) {
+	room := newRoom("game-room", nil)
+	clients := []*Client{
+		testClient(room, "Host", true),
+		testClient(room, "One", false),
+		testClient(room, "Two", false),
+		testClient(room, "Three", false),
+	}
+	for _, client := range clients {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+	room.gameSettings = game.Settings{
+		Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{2, 2, 2, 2, 2},
+		QuestFailThresholds: [game.TotalRounds]int{1, 1, 1, 1, 1},
+	}
+	want := room.gameSettings
+
+	if !room.disconnect(clients[3], true) {
+		t.Fatal("connected player was not removed")
+	}
+	if room.gameSettings != want {
+		t.Fatalf("settings after leave = %#v, want preserved %#v", room.gameSettings, want)
+	}
+}
+
+func TestHostLeaveImmediatelyTransfersHost(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guestOne := testClient(room, "Guest One", false)
+	guestTwo := testClient(room, "Guest Two", false)
+	room.chooseHost = func([]Participant) Participant { return guestTwo.participant }
+	var transferredTo string
+	room.onHostTransfer = func(roomID, participantID string) error {
+		if roomID != room.id {
+			t.Fatalf("transfer room = %q, want %q", roomID, room.id)
+		}
+		transferredTo = participantID
+		return nil
+	}
+	for _, client := range []*Client{host, guestOne, guestTwo} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	room.handleCommand(roomCommand{client: host, kind: "leave_room"})
+
+	if transferredTo != guestTwo.participant.ID || !guestTwo.participant.Host || guestOne.participant.Host {
+		t.Fatalf("transfer = %q; guest hosts = %v, %v", transferredTo, guestOne.participant.Host, guestTwo.participant.Host)
+	}
+	for _, recipient := range []*Client{guestOne, guestTwo} {
+		if event := receiveEvent(t, recipient); event.Type != "user_left" {
+			t.Fatalf("first event = %q, want user_left", event.Type)
+		}
+		if event := receiveEvent(t, recipient); event.Type != "host_transferred" {
+			t.Fatalf("second event = %q, want host_transferred", event.Type)
+		}
+	}
+}
+
+func TestDisconnectedHostIsReservedUntilGraceExpires(t *testing.T) {
+	room := newRoom("game-room", nil)
+	host := testClient(room, "Host", true)
+	guest := testClient(room, "Guest", false)
+	room.chooseHost = func([]Participant) Participant { return guest.participant }
+	for _, client := range []*Client{host, guest} {
+		client.participant.Connected = true
+		room.clients[client] = struct{}{}
+		room.connections[client.participant.ID] = client
+		room.participants[client.participant.ID] = client.participant
+		room.count.Add(1)
+	}
+
+	before := time.Now()
+	if !room.disconnect(host, false) {
+		t.Fatal("host was not disconnected")
+	}
+	_ = receiveEvent(t, guest)
+	if !room.participants[host.participant.ID].Host || guest.participant.Host {
+		t.Fatal("host changed before the disconnect grace period elapsed")
+	}
+	wantExpiry := before.Add(5 * time.Minute)
+	if room.hostReservationExpires.Before(wantExpiry.Add(-time.Second)) || room.hostReservationExpires.After(wantExpiry.Add(time.Second)) {
+		t.Fatalf("host reservation expires at %v, want about %v", room.hostReservationExpires, wantExpiry)
+	}
+	generation := room.hostTransferGeneration
+	room.handleCommand(roomCommand{kind: "transfer_host", playerIDs: []string{host.participant.ID}, generation: generation})
+	if guest.participant.Host {
+		t.Fatal("host transferred while the reservation was active")
+	}
+
+	room.hostReservationExpires = time.Now().Add(-time.Millisecond)
+	room.handleCommand(roomCommand{kind: "transfer_host", playerIDs: []string{host.participant.ID}, generation: generation})
+	if !guest.participant.Host || room.participants[host.participant.ID].Host {
+		t.Fatal("host was not transferred after the reservation expired")
+	}
+	if event := receiveEvent(t, guest); event.Type != "host_transferred" {
+		t.Fatalf("event = %q, want host_transferred", event.Type)
 	}
 }
 
@@ -120,14 +310,39 @@ func TestEmptyRoomClosesAfterGracePeriod(t *testing.T) {
 	}
 }
 
+func TestLastExplicitLeaveClosesRoomImmediately(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	room := newRoom("game-room", func(*Room) { closed <- struct{}{} })
+	go room.run()
+	client := testClient(room, "Host", true)
+	room.register <- client
+	_ = receiveEvent(t, client)
+	_ = receiveEvent(t, client)
+
+	room.commands <- roomCommand{client: client, kind: "leave_room"}
+
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("last explicit departure did not close the room")
+	}
+	select {
+	case <-room.done:
+	case <-time.After(time.Second):
+		t.Fatal("room continued running after its last participant left")
+	}
+}
+
 func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	room := newRoom("game-room", nil)
 	host := testClient(room, "Host", true)
 	guestOne := testClient(room, "Guest One", false)
 	guestTwo := testClient(room, "Guest Two", false)
+	guestThree := testClient(room, "Guest Three", false)
 	room.clients[host] = struct{}{}
 	room.clients[guestOne] = struct{}{}
 	room.clients[guestTwo] = struct{}{}
+	room.clients[guestThree] = struct{}{}
 
 	if err := room.startGame(host); err != nil {
 		t.Fatal(err)
@@ -137,7 +352,7 @@ func TestHostStartsGameBroadcastsStateAndAssignments(t *testing.T) {
 	}
 
 	traitors, merlins := 0, 0
-	for _, client := range []*Client{host, guestOne, guestTwo} {
+	for _, client := range []*Client{host, guestOne, guestTwo, guestThree} {
 		started := receiveEvent(t, client)
 		if started.Type != "game_started" {
 			t.Fatalf("first event = %q, want game_started", started.Type)
@@ -264,7 +479,11 @@ func TestHostCanUpdatePendingGameSettings(t *testing.T) {
 		_ = receiveEvent(t, client)
 	}
 
-	settings := game.Settings{Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1}
+	settings := game.Settings{
+		Minions: 1, Innocents: 1, Merlins: 1, Assassins: 1,
+		QuestSizes:          [game.TotalRounds]int{3, 3, 3, 3, 3},
+		QuestFailThresholds: [game.TotalRounds]int{2, 2, 2, 2, 2},
+	}
 	room.handleCommand(roomCommand{client: clients[0], kind: "update_game_settings", settings: settings})
 	if room.gameSettings != settings || len(room.pendingGameStartConfirmations()) != len(clients) {
 		t.Fatalf("pending settings = %#v; pending players = %d", room.gameSettings, len(room.pendingGameStartConfirmations()))
@@ -289,6 +508,9 @@ func TestHostCanUpdatePendingGameSettings(t *testing.T) {
 	}
 	if counts[game.Traitor] != 1 || counts[game.Innocent] != 1 || counts[game.Merlin] != 1 || counts[game.Assassin] != 1 {
 		t.Fatalf("assigned role counts = %#v", counts)
+	}
+	if exported := room.game.Export(); exported.Settings != settings || room.game.Snapshot().QuestFailsNeeded != 2 {
+		t.Fatalf("started quest settings = %#v, want %#v", exported.Settings, settings)
 	}
 }
 
@@ -546,6 +768,9 @@ func TestMissedAssassinationContinuesGameAndRevealsAssassin(t *testing.T) {
 		}
 		if !state.Active || state.Assassination.Correct || state.Assassination.Assassin.ID != assassin.participant.ID || state.Assassination.Target.ID != wrongTarget.participant.ID {
 			t.Fatalf("public missed assassination = %#v", state)
+		}
+		if confirmationEvent := receiveEvent(t, client); confirmationEvent.Type != "role_confirmations_updated" {
+			t.Fatalf("event = %q, want role_confirmations_updated", confirmationEvent.Type)
 		}
 	}
 
