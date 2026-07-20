@@ -291,7 +291,13 @@
                             <button type="submit">Submit team</button>
                         </form>
                     </div>
-                    <p id="waiting-for-captain"></p>
+                    <div id="captain-waiting-view" class="captain-waiting-view">
+                        <p id="waiting-for-captain"></p>
+                        <section class="captain-turn-order" aria-labelledby="captain-turn-order-title">
+                            <h3 id="captain-turn-order-title">Turn order</h3>
+                            <ol id="captain-turn-order-list" aria-label="Captain turn order"></ol>
+                        </section>
+                    </div>
                 </section>
 
                 <section id="proposal-view" class="phase-view proposal-view" style="padding-top: 20px" hidden>

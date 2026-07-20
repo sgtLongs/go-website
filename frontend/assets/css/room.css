@@ -793,10 +793,14 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     font-weight: 800;
     text-align: center;
 }
+.captain-waiting-view {
+    display: grid;
+    grid-template-rows: minmax(0, 3fr) minmax(0, 1fr);
+    height: clamp(12rem, 42vh, 24rem);
+}
 #waiting-for-captain {
     display: grid;
     place-items: center;
-    min-height: clamp(12rem, 42vh, 24rem);
     margin: 0;
     padding: clamp(1.5rem, 5vw, 4rem);
     border: 2px solid #75dfa9;
@@ -811,6 +815,77 @@ body.gameplay-active .quest-team-selector { padding-top: max(.75rem, env(safe-ar
     text-wrap: balance;
 }
 #waiting-for-captain strong { color: #9af0c5; font-weight: 900; }
+.captain-turn-order {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: clamp(.5rem, 2vw, 1rem);
+    min-height: 0;
+    margin-top: clamp(.5rem, 1.5vh, .75rem);
+    padding: clamp(.35rem, 1.2vw, .65rem);
+    overflow: hidden;
+    border: 1px solid #426356;
+    border-radius: .75rem;
+    background: #10151399;
+}
+.phase-view .captain-turn-order h3 {
+    margin: 0;
+    color: #bac3bf;
+    font-size: clamp(.62rem, 1.8vw, .78rem);
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+#captain-turn-order-list {
+    display: flex;
+    align-items: stretch;
+    gap: .4rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0 0 .15rem;
+    overflow-x: auto;
+    list-style: none;
+    scrollbar-width: thin;
+}
+#captain-turn-order-list li {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    flex: 1 0 auto;
+    min-width: max-content;
+    margin: 0;
+    padding: .35rem .55rem;
+    border: 1px solid #53605a;
+    border-radius: 999px;
+    background: #252c29;
+    color: #bac3bf;
+    font-size: clamp(.7rem, 2vw, .85rem);
+    font-weight: 700;
+    white-space: nowrap;
+}
+#captain-turn-order-list li.current {
+    border-color: #75dfa9;
+    background: #183829;
+    color: #d8ffeb;
+}
+.captain-turn-position {
+    display: grid;
+    place-items: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 50%;
+    background: #101513;
+    color: #9af0c5;
+    font-size: .68rem;
+    font-weight: 900;
+}
+.captain-turn-status {
+    color: #9af0c5;
+    font-size: .58rem;
+    font-weight: 900;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+}
 .choice-row { display: flex; flex-wrap: wrap; gap: .75rem; }
 .choice-row button { flex: 1; }
 .team-list { display: flex; flex-wrap: wrap; gap: .6rem; }
