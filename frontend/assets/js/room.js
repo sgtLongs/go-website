@@ -1728,7 +1728,7 @@
         const isCaptain = gameState.captain.id === playerID;
         byID("required-team-size").textContent = gameState.questSize;
         byID("captain-controls").hidden = !isCaptain;
-        byID("waiting-for-captain").hidden = isCaptain;
+        byID("captain-waiting-view").hidden = isCaptain;
         const waitingMessage = byID("waiting-for-captain");
         const captainName = document.createElement("strong");
         captainName.textContent = gameState.captain.name;
@@ -1737,6 +1737,7 @@
             captainName,
             document.createTextNode(` to choose ${gameState.questSize} players.`),
         );
+        renderCaptainTurnOrder();
         if (!isCaptain) return;
 
         renderQuestCards(byID("captain-quest-cards"));
@@ -1760,6 +1761,39 @@
             options.append(label);
         }
         updateCaptainPlayerLayout();
+    }
+
+    function renderCaptainTurnOrder() {
+        const tracker = byID("captain-turn-order-list");
+        tracker.replaceChildren();
+
+        const livingPlayers = gameState.players.filter((player) => !player.dead);
+        const captainIndex = livingPlayers.findIndex((player) => player.id === gameState.captain.id);
+        if (captainIndex < 0) return;
+        const turnOrder = livingPlayers.slice(captainIndex).concat(livingPlayers.slice(0, captainIndex));
+
+        for (const [index, player] of turnOrder.entries()) {
+            const item = document.createElement("li");
+            item.classList.toggle("current", index === 0);
+            if (index === 0) item.setAttribute("aria-current", "step");
+
+            const position = document.createElement("span");
+            position.className = "captain-turn-position";
+            position.textContent = String(index + 1);
+
+            const name = document.createElement("span");
+            name.className = "captain-turn-name";
+            name.textContent = `${player.name}${player.id === playerID ? " (you)" : ""}`;
+
+            item.append(position, name);
+            if (index === 0) {
+                const status = document.createElement("span");
+                status.className = "captain-turn-status";
+                status.textContent = "Captain";
+                item.append(status);
+            }
+            tracker.append(item);
+        }
     }
 
     function scheduleCaptainPlayerLayout() {
